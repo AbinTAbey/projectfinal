@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Exam System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-user-shield"></i> Admin Panel</h2>
+            </div>
+            <div class="sidebar-menu">
+                <a href="#" class="menu-item active" id="dashboardLink">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="menu-item" id="usersLink">
+                    <i class="fas fa-users"></i>
+                    <span>Manage Users</span>
+                </a>
+                <a href="#" class="menu-item" id="examsLink">
+                    <i class="fas fa-file-alt"></i>
+                    <span>All Exams</span>
+                </a>
+                <a href="#" class="menu-item" id="cheatingLink">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Cheating Cases</span>
+                </a>
+                <a href="#" class="menu-item" id="reportsLink">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Reports</span>
+                </a>
+                <a href="#" class="menu-item" id="systemLink">
+                    <i class="fas fa-cog"></i>
+                    <span>System Settings</span>
+                </a>
+                <a href="#" class="menu-item" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <h1 id="pageTitle">Admin Dashboard</h1>
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">A</div>
+                    <div>
+                        <h4 id="userName">Admin</h4>
+                        <small id="userEmail">admin@example.com</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Content (default) -->
+            <div id="dashboardContent">
+                <div class="stats-cards">
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <h3>Total Users</h3>
+                        <div class="number" id="totalUsers">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <h3>Total Exams</h3>
+                        <div class="number" id="totalExams">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h3>Submissions</h3>
+                        <div class="number" id="totalSubmissions">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Cheating Cases</h3>
+                        <div class="number" id="cheatingCases">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-chalkboard-teacher"></i>
+                        </div>
+                        <h3>Teachers</h3>
+                        <div class="number" id="totalTeachers">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-user-graduate"></i>
+                        </div>
+                        <h3>Students</h3>
+                        <div class="number" id="totalStudents">0</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px;">
+                    <div>
+                        <h3>Recent Activity</h3>
+                        <div class="table-container">
+                            <table id="recentActivityTable">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Action</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Filled by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h3>System Status</h3>
+                        <div class="card" style="height: 100%;">
+                            <div style="margin-bottom: 20px;">
+                                <h4>Storage Usage</h4>
+                                <div style="background: #f8f9fa; height: 20px; border-radius: 10px; overflow: hidden;">
+                                    <div id="storageBar" style="background: #4361ee; height: 100%; width: 0%; transition: width 0.5s;"></div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                                    <small>0 MB</small>
+                                    <small id="storageUsed">0 MB / 5 MB</small>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top: 20px;">
+                                <h4>Active Sessions</h4>
+                                <div class="number" id="activeSessions">0</div>
+                            </div>
+                            
+                            <div style="margin-top: 20px;">
+                                <h4>System Health</h4>
+                                <div id="systemHealth" style="color: #28a745;">
+                                    <i class="fas fa-check-circle"></i> All systems operational
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 30px;">Quick Actions</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <button class="btn btn-primary" onclick="showPage('users')">
+                        <i class="fas fa-user-plus"></i> Add New User
+                    </button>
+                    <button class="btn btn-secondary" onclick="showPage('exams')">
+                        <i class="fas fa-eye"></i> View All Exams
+                    </button>
+                    <button class="btn btn-warning" onclick="showPage('cheating')">
+                        <i class="fas fa-exclamation-triangle"></i> Review Cheating Cases
+                    </button>
+                    <button class="btn btn-success" onclick="generateReport()">
+                        <i class="fas fa-download"></i> Generate Report
+                    </button>
+                </div>
+            </div>
+
+            <!-- Users Management Content (hidden by default) -->
+            <div id="usersContent" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>User Management</h2>
+                    <button class="btn btn-primary" onclick="showAddUserModal()">
+                        <i class="fas fa-user-plus"></i> Add New User
+                    </button>
+                </div>
+                
+                <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                    <button class="btn btn-primary" onclick="filterUsers('all')">
+                        All Users
+                    </button>
+                    <button class="btn btn-secondary" onclick="filterUsers('student')">
+                        Students
+                    </button>
+                    <button class="btn btn-secondary" onclick="filterUsers('teacher')">
+                        Teachers
+                    </button>
+                    <button class="btn btn-secondary" onclick="filterUsers('admin')">
+                        Admins
+                    </button>
+                    <button class="btn btn-warning" onclick="filterUsers('active')">
+                        Active
+                    </button>
+                    <button class="btn btn-warning" onclick="filterUsers('inactive')">
+                        Inactive
+                    </button>
+                </div>
+                
+                <div class="table-container">
+                    <table id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Joined</th>
+                                <th>Last Login</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- All Exams Content (hidden by default) -->
+            <!-- All Exams Content (hidden by default) -->
+<div id="examsContent" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>All Exams</h2>
+        <button class="btn btn-danger" onclick="adminDeleteMultipleExams()" id="adminDeleteMultipleBtn" style="display: none;">
+            <i class="fas fa-trash"></i> Delete Selected
+        </button>
+    </div>
+    
+    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+        <button class="btn btn-primary" onclick="filterAllExams('all')">
+            All Exams
+        </button>
+        <button class="btn btn-secondary" onclick="filterAllExams('active')">
+            Active
+        </button>
+        <button class="btn btn-secondary" onclick="filterAllExams('inactive')">
+            Inactive
+        </button>
+        <button class="btn btn-warning" onclick="filterAllExams('today')">
+            Created Today
+        </button>
+    </div>
+    
+    <div class="table-container">
+        <table id="allExamsTable">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" id="adminSelectAllExams" onchange="adminToggleSelectAllExams(this)">
+                    </th>
+                    <th>Exam Name</th>
+                    <th>Teacher</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Duration</th>
+                    <th>Questions</th>
+                    <th>Students</th>
+                    <th>Submissions</th>
+                    <th>Cheating Cases</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Filled by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Admin Delete Confirmation Modal -->
+    <div class="modal" id="adminDeleteExamModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 id="adminDeleteExamTitle">Delete Exam</h3>
+                <button class="close-modal" onclick="closeModal('adminDeleteExamModal')">&times;</button>
+            </div>
+            <div id="adminDeleteExamContent">
+                <p>Are you sure you want to delete this exam?</p>
+                <p><strong>Warning:</strong> This will also delete all submissions for this exam.</p>
+                <div id="adminMultipleDeleteInfo" style="display: none; margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <p><i class="fas fa-exclamation-triangle"></i> <strong>Multiple exams selected:</strong> <span id="adminSelectedExamCount">0</span> exam(s)</p>
+                </div>
+            </div>
+            <div style="display: flex; gap: 15px; justify-content: flex-end; margin-top: 20px;">
+                <button class="btn btn-secondary" onclick="closeModal('adminDeleteExamModal')">
+                    Cancel
+                </button>
+                <button class="btn btn-danger" onclick="adminConfirmDeleteExam()">
+                    <i class="fas fa-trash"></i> Delete Exam(s)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+            <!-- Cheating Cases Content (hidden by default) -->
+            <div id="cheatingContent" style="display: none;">
+                <h2>Cheating Detection Cases</h2>
+                
+                <div class="stats-cards" style="margin-bottom: 30px;">
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Total Cases</h3>
+                        <div class="number" id="totalCheatingCases">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-user-graduate"></i>
+                        </div>
+                        <h3>Students Involved</h3>
+                        <div class="number" id="studentsInvolved">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <h3>Exams Affected</h3>
+                        <div class="number" id="examsAffected">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <h3>Today's Cases</h3>
+                        <div class="number" id="todaysCases">0</div>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                    <button class="btn btn-primary" onclick="filterCheatingCases('all')">
+                        All Cases
+                    </button>
+                    <button class="btn btn-secondary" onclick="filterCheatingCases('today')">
+                        Today
+                    </button>
+                    <button class="btn btn-secondary" onclick="filterCheatingCases('week')">
+                        This Week
+                    </button>
+                    <button class="btn btn-warning" onclick="filterCheatingCases('serious')">
+                        Serious Cases
+                    </button>
+                    <button class="btn btn-warning" onclick="filterCheatingCases('warning')">
+                        Warnings Only
+                    </button>
+                </div>
+                
+                <div class="table-container">
+                    <table id="cheatingCasesTable">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Exam</th>
+                                <th>Teacher</th>
+                                <th>Date</th>
+                                <th>Warnings</th>
+                                <th>Severity</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Reports Content (hidden by default) -->
+            <div id="reportsContent" style="display: none;">
+                <h2>System Reports</h2>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; margin-top: 30px;">
+                    <div class="card">
+                        <h3>Generate Report</h3>
+                        <div class="input-group">
+                            <label for="reportType">Report Type</label>
+                            <select id="reportType">
+                                <option value="user_activity">User Activity</option>
+                                <option value="exam_performance">Exam Performance</option>
+                                <option value="cheating_analysis">Cheating Analysis</option>
+                                <option value="system_usage">System Usage</option>
+                            </select>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="dateRange">Date Range</label>
+                            <select id="dateRange">
+                                <option value="today">Today</option>
+                                <option value="week">Last 7 Days</option>
+                                <option value="month">Last 30 Days</option>
+                                <option value="custom">Custom Range</option>
+                            </select>
+                        </div>
+                        
+                        <div id="customDateRange" style="display: none;">
+                            <div class="input-group">
+                                <label>From Date</label>
+                                <input type="date" id="fromDate">
+                            </div>
+                            <div class="input-group">
+                                <label>To Date</label>
+                                <input type="date" id="toDate">
+                            </div>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="reportFormat">Format</label>
+                            <select id="reportFormat">
+                                <option value="html">HTML</option>
+                                <option value="pdf">PDF</option>
+                                <option value="csv">CSV</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn btn-primary" onclick="generateDetailedReport()" style="margin-top: 20px;">
+                            <i class="fas fa-download"></i> Generate Report
+                        </button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Quick Statistics</h3>
+                        <div id="quickStats">
+                            <!-- Stats will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="reportPreview" style="margin-top: 30px; display: none;">
+                    <h3>Report Preview</h3>
+                    <div class="card">
+                        <div id="reportContent">
+                            <!-- Report content will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Settings Content (hidden by default) -->
+            <div id="systemContent" style="display: none;">
+                <h2>System Settings</h2>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; margin-top: 30px;">
+                    <div class="card">
+                        <h3>Cheating Detection Settings</h3>
+                        <div class="input-group">
+                            <label for="maxWarnings">Max Warnings Before Auto-Submit</label>
+                            <input type="number" id="maxWarnings" value="3" min="1" max="10">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="cheatingSensitivity">Detection Sensitivity</label>
+                            <select id="cheatingSensitivity">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="strict">Strict</option>
+                            </select>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label>
+                                <input type="checkbox" id="enableAudioDetection" checked>
+                                Enable Audio Detection
+                            </label>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label>
+                                <input type="checkbox" id="enableFaceDetection" checked>
+                                Enable Face Detection
+                            </label>
+                        </div>
+                        
+                        <button class="btn btn-primary" onclick="saveCheatingSettings()">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>System Configuration</h3>
+                        <div class="input-group">
+                            <label for="sessionTimeout">Session Timeout (minutes)</label>
+                            <input type="number" id="sessionTimeout" value="30" min="5" max="240">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="examAutoSubmit">Auto-Submit After (minutes)</label>
+                            <input type="number" id="examAutoSubmit" value="5" min="1" max="30">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="maxExamDuration">Max Exam Duration (hours)</label>
+                            <input type="number" id="maxExamDuration" value="4" min="1" max="24">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label>
+                                <input type="checkbox" id="enableEmailNotifications" checked>
+                                Enable Email Notifications
+                            </label>
+                        </div>
+                        
+                        <button class="btn btn-primary" onclick="saveSystemConfig()">
+                            <i class="fas fa-save"></i> Save Configuration
+                        </button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Database Management</h3>
+                        <div style="margin-bottom: 15px;">
+                            <strong>Current Storage:</strong> <span id="dbStorage">0 MB</span>
+                        </div>
+                        
+                        <button class="btn btn-warning" onclick="backupDatabase()" style="margin-bottom: 10px;">
+                            <i class="fas fa-database"></i> Backup Database
+                        </button>
+                        
+                        <button class="btn btn-secondary" onclick="clearOldData()" style="margin-bottom: 10px;">
+                            <i class="fas fa-trash"></i> Clear Old Data (30+ days)
+                        </button>
+                        
+                        <button class="btn btn-danger" onclick="resetSystem()">
+                            <i class="fas fa-exclamation-triangle"></i> Reset System
+                        </button>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                            <small><i class="fas fa-info-circle"></i> Backup creates a copy of all system data. Reset will delete all data.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div class="modal" id="addUserModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add New User</h3>
+                <button class="close-modal" onclick="closeModal('addUserModal')">&times;</button>
+            </div>
+            <form id="addUserForm">
+                <div class="input-group">
+                    <label for="newUserName">Full Name *</label>
+                    <input type="text" id="newUserName" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="newUserEmail">Email Address *</label>
+                    <input type="email" id="newUserEmail" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="newUserPassword">Password *</label>
+                    <input type="password" id="newUserPassword" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="newUserRole">Role *</label>
+                    <select id="newUserRole" required>
+                        <option value="">Select Role</option>
+                        <option value="student">Student</option>
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div class="input-group">
+                    <label for="newUserStatus">Status</label>
+                    <select id="newUserStatus">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                
+                <div class="text-center" style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i> Create User
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('addUserModal')">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal" id="editUserModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit User</h3>
+                <button class="close-modal" onclick="closeModal('editUserModal')">&times;</button>
+            </div>
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                
+                <div class="input-group">
+                    <label for="editUserName">Full Name *</label>
+                    <input type="text" id="editUserName" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="editUserEmail">Email Address *</label>
+                    <input type="email" id="editUserEmail" required>
+                </div>
+                
+                <div class="input-group">
+                    <label for="editUserPassword">Password (leave blank to keep current)</label>
+                    <input type="password" id="editUserPassword">
+                </div>
+                
+                <div class="input-group">
+                    <label for="editUserRole">Role *</label>
+                    <select id="editUserRole" required>
+                        <option value="student">Student</option>
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                
+                <div class="input-group">
+                    <label for="editUserStatus">Status</label>
+                    <select id="editUserStatus">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                
+                <div class="text-center" style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')">
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Cheating Case Details Modal -->
+    <div class="modal" id="cheatingDetailsModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>Cheating Case Details</h3>
+                <button class="close-modal" onclick="closeModal('cheatingDetailsModal')">&times;</button>
+            </div>
+            <div id="cheatingDetailsContent">
+                <!-- Details will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/admin.js"></script>
+<script>
+  const user = checkAuth("admin");
+  if (user) {
+    document.getElementById("userName").textContent = user.name || "Admin";
+    document.getElementById("userEmail").textContent = user.email;
+    document.getElementById("userAvatar").textContent =
+      user.name?.charAt(0).toUpperCase() || "A";
+  }
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard - Exam System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-user-graduate"></i> Student Panel</h2>
+            </div>
+            <div class="sidebar-menu">
+                <a href="#" class="menu-item active" id="dashboardLink">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="menu-item" id="enterCodeLink">
+                    <i class="fas fa-key"></i>
+                    <span>Enter Exam Code</span>
+                </a>
+                <a href="#" class="menu-item" id="myExamsLink">
+                    <i class="fas fa-history"></i>
+                    <span>My Exams</span>
+                </a>
+                <a href="#" class="menu-item" id="resultsLink">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Results</span>
+                </a>
+                <a href="#" class="menu-item" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <h1 id="pageTitle">Student Dashboard</h1>
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">S</div>
+                    <div>
+                        <h4 id="userName">Student</h4>
+                        <small id="userEmail">student@example.com</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Content (default) -->
+            <div id="dashboardContent">
+                <div class="stats-cards">
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <h3>Exams Assigned</h3>
+                        <div class="number" id="assignedExamsCount">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h3>Completed</h3>
+                        <div class="number" id="completedExamsCount">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <h3>Pending</h3>
+                        <div class="number" id="pendingExamsCount">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Warnings</h3>
+                        <div class="number" id="warningsCount">0</div>
+                    </div>
+                </div>
+
+                <h2>Recent Exams</h2>
+                <div class="table-container">
+                    <table id="recentExamsTable">
+                        <thead>
+                            <tr>
+                                <th>Exam Name</th>
+                                <th>Teacher</th>
+                                <th>Date</th>
+                                <th>Score</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 40px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3><i class="fas fa-key"></i> Have an exam code?</h3>
+                            <p>Enter the exam code provided by your teacher to start the exam.</p>
+                        </div>
+                        <button class="btn btn-light" onclick="document.getElementById('enterCodeLink').click()">
+                            <i class="fas fa-arrow-right"></i> Enter Exam Code
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enter Code Content (hidden by default) -->
+            <div id="enterCodeContent" style="display: none;">
+                <div class="card" style="max-width: 500px; margin: 0 auto;">
+                    <h2 style="text-align: center; margin-bottom: 30px;">
+                        <i class="fas fa-key"></i> Enter Exam Code
+                    </h2>
+                    
+                    <div class="input-group">
+                        <label for="examCodeInput">Exam Code</label>
+                        <input type="text" id="examCodeInput" placeholder="Enter 8-digit exam code (e.g., ABC123XY)" 
+                               style="text-align: center; letter-spacing: 2px; font-weight: bold; font-size: 18px;">
+                        <small style="display: block; margin-top: 5px; color: #666;">
+                            Get this code from your teacher
+                        </small>
+                    </div>
+                    
+                    <div class="text-center" style="margin-top: 30px;">
+                        <button class="btn btn-primary" onclick="validateExamCode()" style="min-width: 200px;">
+                            <i class="fas fa-check"></i> Validate & Start Exam
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                        <h4><i class="fas fa-info-circle"></i> How to get an exam code?</h4>
+                        <ol style="margin-left: 20px; margin-top: 10px;">
+                            <li>Your teacher will share an exam link with you</li>
+                            <li>The link contains an 8-digit code (e.g., <code>exam.html?code=ABC123XY</code>)</li>
+                            <li>Enter just the code (ABC123XY) in the field above</li>
+                            <li>Or click the direct link if your teacher shared it</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My Exams Content (hidden by default) -->
+            <div id="myExamsContent" style="display: none;">
+                <h2>My Exam History</h2>
+                <div class="table-container">
+                    <table id="myExamHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Exam Name</th>
+                                <th>Teacher</th>
+                                <th>Started</th>
+                                <th>Submitted</th>
+                                <th>Score</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Results Content (hidden by default) -->
+            <div id="resultsContent" style="display: none;">
+                <h2>My Results</h2>
+                <div class="table-container">
+                    <table id="myResultsTable">
+                        <thead>
+                            <tr>
+                                <th>Exam Name</th>
+                                <th>Teacher</th>
+                                <th>Date</th>
+                                <th>Score</th>
+                                <th>Max Marks</th>
+                                <th>Percentage</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <h2 style="margin-top: 40px;">Performance Summary</h2>
+                <div class="stats-cards">
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <h3>Average Score</h3>
+                        <div class="number" id="averageScore">0%</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-trophy"></i>
+                        </div>
+                        <h3>Highest Score</h3>
+                        <div class="number" id="highestScore">0%</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-calendar-check"></i>
+                        </div>
+                        <h3>Exams Taken</h3>
+                        <div class="number" id="examsTaken">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <h3>Avg. Time</h3>
+                        <div class="number" id="averageTime">N/A</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Exam Access -->
+    <div class="modal" id="examAccessModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="examAccessTitle">Exam Access</h3>
+                <button class="close-modal" onclick="closeModal('examAccessModal')">&times;</button>
+            </div>
+            <div id="examAccessContent">
+                <!-- Content will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/student.js"></script>
+
+
+
+
+</body>
+</html>

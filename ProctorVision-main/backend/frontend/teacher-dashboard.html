@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard - Exam System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-chalkboard-teacher"></i> Teacher Panel</h2>
+            </div>
+            <div class="sidebar-menu">
+                <a href="#" class="menu-item active" id="dashboardLink">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="menu-item" id="createExamLink">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Create Exam</span>
+                </a>
+                <a href="#" class="menu-item" id="examsLink">
+                    <i class="fas fa-file-alt"></i>
+                    <span>My Exams</span>
+                </a>
+                <a href="#" class="menu-item" id="resultsLink">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Results</span>
+                </a>
+                <a href="#" class="menu-item" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <h1 id="pageTitle">Teacher Dashboard</h1>
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">T</div>
+                    <div>
+                        <h4 id="userName">Teacher</h4>
+                        <small id="userEmail">teacher@example.com</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Content (default) -->
+            <div id="dashboardContent">
+                <div class="stats-cards">
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <h3>Total Exams</h3>
+                        <div class="number" id="totalExams">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <h3>Students</h3>
+                        <div class="number" id="totalStudents">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h3>Completed</h3>
+                        <div class="number" id="completedExams">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Cheating Cases</h3>
+                        <div class="number" id="cheatingCases">0</div>
+                    </div>
+                </div>
+
+                <h2>Recent Exams</h2>
+                <div class="table-container">
+                    <table id="examsTable">
+                        <thead>
+                            <tr>
+                                <th>Exam Name</th>
+                                <th>Date</th>
+                                <th>Students</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filled by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Create Exam Content (hidden by default) -->
+            <div id="createExamContent" style="display: none;">
+                <div class="exam-form">
+                    <h2>Create New Exam</h2>
+                    <form id="createExamForm">
+                        <div class="input-group">
+                            <label for="examTitle">Exam Title *</label>
+                            <input type="text" id="examTitle" placeholder="Enter exam title" required>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="examDescription">Description</label>
+                            <textarea id="examDescription" rows="3" placeholder="Enter exam description"></textarea>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="examDuration">Duration (minutes) *</label>
+                            <input type="number" id="examDuration" min="1" value="60" required>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="accessType">Access Control</label>
+                            <select id="accessType" onchange="toggleStudentSelection()">
+                                <option value="link">Anyone with link</option>
+                                <option value="specific">Specific students only</option>
+                            </select>
+                        </div>
+                        
+                        <div id="studentSelection" style="display: none;">
+                            <label>Select Students</label>
+                            <div id="studentList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 5px;">
+                                <!-- Student list will be loaded here -->
+                            </div>
+                            <small>Hold Ctrl/Cmd to select multiple students</small>
+                        </div>
+                        
+                        <h3>Questions</h3>
+                        <div id="questionsContainer">
+                            <!-- Questions will be added here -->
+                        </div>
+                        
+                        <div style="margin: 20px 0; display: flex; gap: 10px;">
+                            <button type="button" class="btn btn-secondary" onclick="addMCQ()">
+                                <i class="fas fa-plus"></i> Add MCQ Question
+                            </button>
+                            
+                            <button type="button" class="btn btn-secondary" onclick="addShortAnswer()">
+                                <i class="fas fa-plus"></i> Add Short Answer Question
+                            </button>
+                        </div>
+                        
+                        <div class="text-center" style="margin-top: 30px;">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Create Exam & Generate Link
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- My Exams Content (hidden by default) -->
+            <!-- My Exams Content (hidden by default) -->
+<!-- My Exams Content (hidden by default) -->
+<div id="myExamsContent" style="display: none;">
+    <h2>My Exams</h2>
+    
+    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+        <button class="btn btn-primary" onclick="filterExams('all')">
+            <i class="fas fa-list"></i> All Exams
+        </button>
+        <button class="btn btn-secondary" onclick="filterExams('active')">
+            <i class="fas fa-play-circle"></i> Active
+        </button>
+        <button class="btn btn-secondary" onclick="filterExams('inactive')">
+            <i class="fas fa-pause-circle"></i> Inactive
+        </button>
+        <button class="btn btn-danger" onclick="deleteMultipleExams()" id="deleteMultipleBtn" style="display: none;">
+            <i class="fas fa-trash"></i> Delete Selected
+        </button>
+    </div>
+    
+    <div class="table-container">
+        <table id="myExamsTable">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" id="selectAllExams" onchange="toggleSelectAllExams(this)">
+                    </th>
+                    <th>Exam Name</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Exam Code</th>
+                    <th>Questions</th>
+                    <th>Duration</th>
+                    <th>Students</th>
+                    <th>Submissions</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Filled by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="deleteExamModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 id="deleteExamTitle">Delete Exam</h3>
+                <button class="close-modal" onclick="closeModal('deleteExamModal')">&times;</button>
+            </div>
+            <div id="deleteExamContent">
+                <p>Are you sure you want to delete this exam?</p>
+                <p><strong>Warning:</strong> This will also delete all submissions for this exam.</p>
+                <div id="multipleDeleteInfo" style="display: none; margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <p><i class="fas fa-exclamation-triangle"></i> <strong>Multiple exams selected:</strong> <span id="selectedExamCount">0</span> exam(s)</p>
+                </div>
+            </div>
+            <div style="display: flex; gap: 15px; justify-content: flex-end; margin-top: 20px;">
+                <button class="btn btn-secondary" onclick="closeModal('deleteExamModal')">
+                    Cancel
+                </button>
+                <button class="btn btn-danger" onclick="confirmDeleteExam()">
+                    <i class="fas fa-trash"></i> Delete Exam
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+            <!-- Results Content (hidden by default) -->
+            <!-- Results Content (hidden by default) -->
+<div id="resultsContent" style="display: none;">
+    <h2>Exam Results</h2>
+    
+    <div class="stats-cards" style="margin-bottom: 30px;">
+        <div class="card">
+            <div class="card-icon">
+                <i class="fas fa-file-alt"></i>
+            </div>
+            <h3>Total Submissions</h3>
+            <div class="number" id="totalSubmissions">0</div>
+        </div>
+        <div class="card">
+            <div class="card-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <h3>Average Score</h3>
+            <div class="number" id="avgScore">0%</div>
+        </div>
+        <div class="card">
+            <div class="card-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3>Cheating Cases</h3>
+            <div class="number" id="totalCheating">0</div>
+        </div>
+        <div class="card">
+            <div class="card-icon">
+                <i class="fas fa-user-graduate"></i>
+            </div>
+            <h3>Students Participated</h3>
+            <div class="number" id="studentsParticipated">0</div>
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 20px;">
+        <div class="input-group" style="max-width: 300px;">
+            <label for="examFilter">Filter by Exam</label>
+            <select id="examFilter" onchange="filterResultsByExam()">
+                <option value="all">All Exams</option>
+                <!-- Exams will be loaded here -->
+            </select>
+        </div>
+    </div>
+    
+    <div class="table-container">
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Exam</th>
+                    <th>Started</th>
+                    <th>Submitted</th>
+                    <th>Score</th>
+                    <th>Total Marks</th>
+                    <th>Percentage</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Filled by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <div id="submissionDetailsModal" class="modal">
+        <div class="modal-content" style="max-width: 800px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3 id="submissionDetailsTitle">Submission Details</h3>
+                <button class="close-modal" onclick="closeModal('submissionDetailsModal')">&times;</button>
+            </div>
+            <div id="submissionDetailsContent">
+                <!-- Submission details will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- Modal for Exam Link -->
+    <div class="modal" id="examLinkModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Exam Link Generated</h3>
+                <button class="close-modal" onclick="closeModal('examLinkModal')">&times;</button>
+            </div>
+            <p>Share this link with your students:</p>
+            <div class="input-group">
+                <input type="text" id="generatedLink" readonly>
+                <button type="button" class="btn btn-success" onclick="copyLink()" style="margin-top: 10px;">
+                    <i class="fas fa-copy"></i> Copy Link
+                </button>
+                <button type="button" class="btn btn-primary" onclick="copyExamCode()" style="margin-top: 10px;">
+                    <i class="fas fa-key"></i> Copy Exam Code
+                </button>
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h5><i class="fas fa-info-circle"></i> How students access:</h5>
+                <ol style="margin-left: 20px; margin-top: 10px;">
+                    <li>Share the link above with students</li>
+                    <li>Students can click the link or enter the code manually</li>
+                    <li>Only students with the link/code can access the exam</li>
+                    <li>For "Specific students only" - only selected students can access</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/teacher.js"></script>
+
+
+
+</body>
+</html>

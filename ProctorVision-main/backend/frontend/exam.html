@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam - Online Exam System</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Exam specific styles */
+        .exam-wrapper {
+            display: flex;
+            min-height: 100vh;
+            background: #f5f7fb;
+        }
+        
+        .exam-sidebar {
+            width: 300px;
+            background: white;
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .exam-main {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        .camera-preview {
+            width: 100%;
+            height: 180px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .camera-status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .monitoring-stats {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .stat-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .cheating-warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .cheating-warning.show {
+            display: block;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 193, 7, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+        }
+        
+        .question-navigation {
+            margin-top: auto;
+        }
+        
+        .question-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .question-number {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #e9ecef;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .question-number:hover {
+            background: #dee2e6;
+        }
+        
+        .question-number.active {
+            background: #4361ee;
+            color: white;
+        }
+        
+        .question-number.answered {
+            background: #28a745;
+            color: white;
+        }
+        
+        .question-number.marked {
+            background: #ffc107;
+            color: black;
+        }
+        
+        .timer-container {
+            background: linear-gradient(135deg, #4361ee, #3a56d4);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .timer {
+            font-size: 32px;
+            font-weight: 700;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .timer.warning {
+            color: #ffc107;
+            animation: blink 1s infinite;
+        }
+        
+        .timer.danger {
+            color: #f72585;
+            animation: blink 0.5s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .question-container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+        
+        .question-text {
+            font-size: 18px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        
+        .options-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .option {
+            padding: 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .option:hover {
+            border-color: #4361ee;
+            background: rgba(67, 97, 238, 0.05);
+        }
+        
+        .option.selected {
+            border-color: #4361ee;
+            background: rgba(67, 97, 238, 0.1);
+        }
+        
+        .option input[type="radio"],
+        .option input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+        
+        .option-label {
+            font-weight: 500;
+            font-size: 16px;
+        }
+        
+        .short-answer-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            font-size: 16px;
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .short-answer-input:focus {
+            outline: none;
+            border-color: #4361ee;
+        }
+        
+        .exam-controls {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+        }
+        
+        .cheating-alert {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            display: none;
+        }
+        
+        .cheating-alert.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -60%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+        
+        .alert-icon {
+            font-size: 64px;
+            color: #f72585;
+            margin-bottom: 20px;
+        }
+        
+        .alert-count {
+            font-size: 48px;
+            font-weight: 700;
+            color: #f72585;
+            margin: 20px 0;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+            display: none;
+        }
+        
+        .overlay.show {
+            display: block;
+        }
+        
+        .submit-confirm {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            display: none;
+        }
+        
+        .submit-confirm.show {
+            display: block;
+        }
+        
+        .warning-badge {
+            display: inline-block;
+            background: #f72585;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .fullscreen-warning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #f72585;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            z-index: 1002;
+            display: none;
+        }
+        
+        .fullscreen-warning.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        /* Start Exam Button Styles */
+        .start-exam-section {
+            text-align: center;
+            padding: 40px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            margin: 20px 0;
+        }
+        
+        .exam-instructions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .instructions-list {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+        
+        .instructions-list li {
+            margin-bottom: 8px;
+        }
+        
+        @media (max-width: 1024px) {
+            .exam-wrapper {
+                flex-direction: column;
+            }
+            
+            .exam-sidebar {
+                width: 100%;
+                order: 2;
+            }
+            
+            .exam-main {
+                order: 1;
+            }
+            
+            .question-grid {
+                grid-template-columns: repeat(auto-fill, minmax(35px, 1fr));
+            }
+            
+            .question-number {
+                width: 35px;
+                height: 35px;
+                font-size: 14px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .exam-main {
+                padding: 20px;
+            }
+            
+            .question-container {
+                padding: 20px;
+            }
+            
+            .timer {
+                font-size: 24px;
+            }
+            
+            .exam-controls {
+                flex-direction: column;
+                gap: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="exam-wrapper">
+        <!-- Sidebar with monitoring -->
+        <div class="exam-sidebar">
+            <h3 style="margin-bottom: 20px; color: #4361ee;">
+                <i class="fas fa-eye"></i> AI Proctoring
+            </h3>
+            
+            <div class="camera-preview">
+                <video id="videoElement" autoplay playsinline muted></video>
+                <div class="camera-status">
+                    <i class="fas fa-video" id="cameraIcon"></i>
+                    <span id="cameraStatus">Camera Active</span>
+                </div>
+            </div>
+            
+            <div class="monitoring-stats">
+                <div class="stat-item">
+                    <span><i class="fas fa-user"></i> Face Detection</span>
+                    <span id="faceStatus" style="color: #28a745;">✓ Active</span>
+                </div>
+                <div class="stat-item">
+                    <span><i class="fas fa-microphone"></i> Audio Monitoring</span>
+                    <span id="audioStatus" style="color: #28a745;">✓ Active</span>
+                </div>
+                <div class="stat-item">
+                    <span><i class="fas fa-exclamation-triangle"></i> Warnings</span>
+                    <span id="warningCount" style="color: #f72585;">0</span>
+                </div>
+                <div class="stat-item">
+                    <span><i class="fas fa-shield-alt"></i> AI Protection</span>
+                    <span style="color: #4361ee;">ON</span>
+                </div>
+            </div>
+            
+            <div class="cheating-warning" id="cheatingWarning">
+                <h4 style="color: #856404; margin-top: 0;">
+                    <i class="fas fa-exclamation-triangle"></i> Warning
+                </h4>
+                <p id="warningMessage" style="margin-bottom: 10px;">Suspicious activity detected!</p>
+                <small>Continued violations may result in automatic submission.</small>
+            </div>
+            
+            <div class="timer-container">
+                <div><i class="fas fa-clock"></i> Time Remaining</div>
+                <div class="timer" id="examTimer">00:00</div>
+                <div>Exam will auto-submit when time expires</div>
+            </div>
+            
+            <div class="question-navigation">
+                <h4 style="margin-bottom: 15px;">Questions</h4>
+                <div class="question-grid" id="questionGrid">
+                    <!-- Question numbers will be generated here -->
+                </div>
+                <div style="margin-top: 20px; font-size: 12px; color: #666;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                        <div style="width: 15px; height: 15px; background: #e9ecef; border-radius: 3px;"></div>
+                        <span>Not visited</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                        <div style="width: 15px; height: 15px; background: #4361ee; border-radius: 3px;"></div>
+                        <span>Current</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                        <div style="width: 15px; height: 15px; background: #28a745; border-radius: 3px;"></div>
+                        <span>Answered</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 15px; height: 15px; background: #ffc107; border-radius: 3px;"></div>
+                        <span>Marked for review</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Exam Area -->
+        <div class="exam-main">
+            <!-- Exam Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #dee2e6;">
+                <div>
+                    <h1 id="examTitle">Exam Title</h1>
+                    <p id="examDescription" style="color: #666; margin-top: 5px;">Exam description</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 14px; color: #666;">Student</div>
+                    <div style="font-weight: 600; font-size: 18px;" id="studentName">Loading...</div>
+                </div>
+            </div>
+            
+            <!-- Start Exam Section -->
+            <div id="examInstructions" class="start-exam-section">
+                <h2 style="color: #4361ee; margin-bottom: 20px;">Ready to Start Your Exam?</h2>
+                <p style="font-size: 18px; margin-bottom: 30px;">Please read the instructions carefully before starting.</p>
+                
+                <div class="exam-instructions">
+                    <h3 style="margin-top: 0; color: #4361ee;">
+                        <i class="fas fa-info-circle"></i> Important Instructions
+                    </h3>
+                    <ul class="instructions-list">
+                        <li>Ensure you have a stable internet connection</li>
+                        <li>Camera and microphone access is required</li>
+                        <li>Do not switch tabs or applications during the exam</li>
+                        <li>The exam will auto-submit when time expires</li>
+                        <li>Any suspicious activity will be flagged</li>
+                    </ul>
+                </div>
+                
+                <div style="margin: 30px 0;">
+                    <div style="display: inline-flex; align-items: center; background: #e9ecef; padding: 15px 25px; border-radius: 10px; margin-bottom: 15px;">
+                        <i class="fas fa-clock" style="color: #4361ee; font-size: 24px; margin-right: 15px;"></i>
+                        <div>
+                            <div style="font-weight: 600; font-size: 18px;" id="examDurationDisplay">Duration: 0 minutes</div>
+                            <div style="font-size: 14px; color: #666;" id="totalQuestionsDisplay">Total Questions: 0</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button id="startExamBtn" class="btn btn-primary" style="padding: 15px 40px; font-size: 18px;" disabled>
+                    <i class="fas fa-play-circle"></i> Start Exam
+                </button>
+                
+                <p style="margin-top: 20px; color: #666; font-size: 14px;">
+                    <i class="fas fa-exclamation-triangle"></i> Clicking "Start Exam" will begin the timer and enable AI proctoring
+                </p>
+            </div>
+            
+            <!-- Questions Container (Hidden initially) -->
+            <div id="examContainer" style="display: none;">
+                <div class="question-container">
+                    <div id="currentQuestionNumber" style="font-weight: 600; color: #4361ee; margin-bottom: 10px;"></div>
+                    <div id="questionsContainer"></div>
+                </div>
+                
+                <!-- Exam Controls -->
+                <div class="exam-controls">
+                    <div>
+                        <button class="btn btn-secondary" id="prevBtn" disabled>
+                            <i class="fas fa-arrow-left"></i> Previous
+                        </button>
+                        <button class="btn btn-secondary" id="nextBtn">
+                            Next <i class="fas fa-arrow-right"></i>
+                        </button>
+                        <button class="btn btn-warning" id="markBtn">
+                            <i class="fas fa-flag"></i> Mark for Review
+                        </button>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary" id="submitBtn">
+                            <i class="fas fa-paper-plane"></i> Submit Exam
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cheating Alert Modal -->
+    <div class="overlay" id="cheatingOverlay"></div>
+    <div class="cheating-alert" id="cheatingAlert">
+        <div class="alert-icon">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h2 id="alertTitle">Warning!</h2>
+        <p id="alertMessage">Suspicious activity detected. Please follow exam rules.</p>
+        <div class="alert-count" id="alertCount">1</div>
+        <p><strong>Violation Type:</strong> <span id="violationType">Looking away from screen</span></p>
+        <p><small>3 warnings will result in automatic submission</small></p>
+        <button class="btn btn-primary" onclick="closeCheatingAlert()" style="margin-top: 20px;">
+            I Understand
+        </button>
+    </div>
+
+    <!-- Submit Confirmation Modal -->
+    <div class="overlay" id="submitOverlay"></div>
+    <div class="submit-confirm" id="submitConfirm">
+        <h2 style="margin-bottom: 20px;">
+            <i class="fas fa-paper-plane"></i> Submit Exam
+        </h2>
+        <p id="submitMessage">Are you sure you want to submit your exam?</p>
+        <div id="warningStats" style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; display: none;">
+            <p style="color: #f72585; margin: 0;">
+                <i class="fas fa-exclamation-triangle"></i> 
+                <strong>Note:</strong> You have received <span id="warningCountConfirm">0</span> warning(s)
+            </p>
+        </div>
+        <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px;">
+            <button class="btn btn-secondary" onclick="closeSubmitConfirm()">
+                Cancel
+            </button>
+            <button class="btn btn-primary" onclick="confirmSubmit()">
+                Yes, Submit Exam
+            </button>
+        </div>
+    </div>
+
+    <!-- Fullscreen Warning -->
+    <div class="fullscreen-warning" id="fullscreenWarning">
+        <i class="fas fa-exclamation-circle"></i> 
+        Warning: Tab switching detected! Return to exam immediately.
+    </div>
+
+    <!-- Loading Screen -->
+    <div class="overlay" id="loadingOverlay" style="display: flex;">
+
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white;">
+            <i class="fas fa-spinner fa-spin fa-3x" style="margin-bottom: 20px;"></i>
+            <h2>Loading Exam...</h2>
+            <p id="loadingMessage">Initializing AI monitoring system</p>
+        </div>
+    </div>
+    <!-- Add these scripts BEFORE your existing exam.js script -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/exam.js"></script>
+    
+    <script>
+        // Helper functions
+        function closeCheatingAlert() {
+            const cheatingAlert = document.getElementById("cheatingAlert");
+            const cheatingOverlay = document.getElementById("cheatingOverlay");
+            if (cheatingAlert) cheatingAlert.classList.remove("show");
+            if (cheatingOverlay) cheatingOverlay.classList.remove("show");
+        }
+        
+        function closeSubmitConfirm() {
+            const submitConfirm = document.getElementById("submitConfirm");
+            const submitOverlay = document.getElementById("submitOverlay");
+            if (submitConfirm) submitConfirm.classList.remove("show");
+            if (submitOverlay) submitOverlay.classList.remove("show");
+        }
+    </script>
+
+</body>
+</html>
