@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Exam System</title>
+    <meta name="theme-color" content="#6366f1" />
+    <title>ProctorVision - Create Account</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -11,52 +12,52 @@
     <div class="container">
         <div class="auth-box">
             <div class="logo">
-                <i class="fas fa-graduation-cap"></i>
+                <i class="fas fa-shield-alt"></i>
                 <h1>ProctorVision</h1>
             </div>
             
             <h2>Create Account</h2>
+            <p class="subtitle">Join ProctorVision and take secure exams</p>
             
             <form id="registerForm">
                 <div class="input-group">
-                    <label for="name">Full Name</label>
-                    <input type="text" id="name" placeholder="Enter your full name" required>
+                    <label for="name"><i class="fas fa-user" style="margin-right: 8px; color: #6366f1;"></i>Full Name</label>
+                    <input type="text" id="name" placeholder="John Doe" required>
                 </div>
                 
                 <div class="input-group">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" placeholder="Enter your email" required>
+                    <label for="email"><i class="fas fa-envelope" style="margin-right: 8px; color: #6366f1;"></i>Email Address</label>
+                    <input type="email" id="email" placeholder="your@email.com" required>
                 </div>
                 
                 <div class="input-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" placeholder="Create a password" required>
+                    <label for="password"><i class="fas fa-lock" style="margin-right: 8px; color: #6366f1;"></i>Password</label>
+                    <input type="password" id="password" placeholder="••••••••" required>
                 </div>
                 
                 <div class="input-group">
-                    <label for="role">I am a</label>
+                    <label for="role"><i class="fas fa-briefcase" style="margin-right: 8px; color: #6366f1;"></i>Account Type</label>
                     <select id="role" required onchange="toggleAdminPassword()">
-                        <option value="">Select Role</option>
-                        <option value="student">Student</option>
-                        <option value="teacher">Teacher</option>
-                        <option value="admin">Admin</option>
+                        <option value="">Select your role</option>
+                        <option value="student">📚 Student</option>
+                        <option value="teacher">👨‍🏫 Teacher</option>
+                        <option value="admin">🔐 Administrator</option>
                     </select>
                 </div>
                 
                 <div class="input-group" id="adminPasswordGroup" style="display: none;">
-                    <label for="adminPassword">Admin Password *</label>
-                    <input type="password" id="adminPassword" placeholder="Enter admin password">
-                    
+                    <label for="adminPassword"><i class="fas fa-key" style="margin-right: 8px; color: #6366f1;"></i>Admin Password</label>
+                    <input type="password" id="adminPassword" placeholder="••••••••">
+                    <small class="password-hint">🔒 Required for admin registration</small>
                 </div>
                 
                 <button type="submit" class="btn btn-primary">
-  <i class="fas fa-user-plus"></i> Register Now
-</button>
-
+                    <i class="fas fa-user-plus"></i> Create Account
+                </button>
 
                 
                 <p class="text-center">
-                    Already have an account? <a href="index.html">Login here</a>
+                    Already have an account? <a href="index.html">Sign in</a>
                 </p>
             </form>
             
@@ -64,6 +65,7 @@
         </div>
     </div>
     
+    <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script>
         function toggleAdminPassword() {
@@ -86,6 +88,5 @@
             }
         });
     </script>
-    <script src="js/config.js"></script>
 </body>
 </html>

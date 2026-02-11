@@ -1,15 +1,10 @@
-console.log("🔥 AI PROCTORING SYSTEM LOADED - REVISED VERSION");
+console.log("🔥 AI PROCTORING SYSTEM LOADED - PRODUCTION STABLE VERSION");
 
 const MAX_WARNINGS = 3;
 const NO_FACE_TIMEOUT = 5000;
 const LOOK_AWAY_TIMEOUT = 10000;
-const AUDIO_THRESHOLD = 0.18;
-const SPEAKING_TIME_THRESHOLD = 5.0;
-const OBJECT_SCORE_THRESHOLD = 0.6;
-const SUSPICIOUS_OBJECTS = ['cell phone', 'phone', 'book', 'laptop', 'remote', 'tv'];
 const OBJECT_CHECK_INTERVAL = 2000;
 const OBJECT_WARNING_COOLDOWN = 10000;
-const DETECTION_INTERVAL = 150;
 const UI_UPDATE_INTERVAL = 1000;
 
 const API_BASE_URL = "/api";
@@ -31,9 +26,8 @@ let audioContext = null;
 let analyser = null;
 let microphone = null;
 let timeDomainArray = null;
-let faceDetection = null;
 let faceMesh = null;
-let objectDetection = null;
+let cocoModel = null;
 
 let warningCount = 0;
 let warningHistory = [];
@@ -43,23 +37,51 @@ let faceDetected = false;
 let multipleFaces = false;
 let noFaceStartTime = null;
 let lookingAwayStartTime = null;
-let speakingTime = 0;
 let lastObjectWarningTime = 0;
 let isLookingAtScreen = true;
 let detectedObjects = [];
 let securityBlockersActive = false;
 
-let faceInterval = null;
-let audioInterval = null;
+let faceAnimationFrame = null;
 let objectInterval = null;
 let uiInterval = null;
 
-let totalSpeakingTime = 0;
-let totalLookingAwayTime = 0;
 let startExamTime = null;
+
+// Detection locks
+let isDetectingObject = false;
+let isRestartingSpeech = false;
+
+// Accessibility Mode
+let isAccessibleMode = new URLSearchParams(window.location.search).get("accessible") === "true";
+let speechRecognition = null;
+let isListening = false;
+let currentSpeech = null;
+let accessibilityLabel = null;
+
+// Detection buffers for smoothing
+let poseHistory = [];
+let objectHistory = [];
+const POSE_HISTORY_SIZE = 7;
+const OBJECT_HISTORY_SIZE = 3;
+const HEAD_OFFSET_THRESHOLD = 0.03;
+const REQUIRED_AWAY_TIME = 3000;
+
+// Face mesh landmarks indices
+const LANDMARK_INDICES = {
+    NOSE_TIP: 1,
+    LEFT_EYE_OUTER: 33,
+    RIGHT_EYE_OUTER: 263
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
     console.log("🎓 Initializing AI Proctoring System...");
+    
+    // Create accessibility label if in accessible mode
+    if (isAccessibleMode) {
+        createAccessibilityLabel();
+        console.log("🔊 Accessibility Mode Enabled");
+    }
     
     const examCode = new URLSearchParams(window.location.search).get("code");
     if (!examCode) {
@@ -83,6 +105,31 @@ document.addEventListener("DOMContentLoaded", async () => {
         startBtn.onclick = () => window.startExam();
     }
 });
+
+function createAccessibilityLabel() {
+    accessibilityLabel = document.createElement("div");
+    accessibilityLabel.style.cssText = `
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: #4361ee;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        z-index: 9999;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    accessibilityLabel.innerHTML = `
+        <i class="fas fa-universal-access"></i>
+        <span>Accessibility Mode Enabled</span>
+    `;
+    document.body.appendChild(accessibilityLabel);
+}
 
 async function checkAttemptStatus(examCode) {
     try {
@@ -109,37 +156,35 @@ async function loadAIModels() {
     showLoading("Loading AI models...");
     
     try {
-        if (typeof cocoSsd !== 'undefined') {
-            objectDetection = await cocoSsd.load();
+        // Load TensorFlow.js and COCO-SSD
+        if (typeof tf !== 'undefined' && typeof cocoSsd !== 'undefined') {
+            cocoModel = await cocoSsd.load();
             console.log("✅ COCO-SSD model loaded");
+        } else {
+            console.warn("TensorFlow.js or COCO-SSD not available");
         }
         
-        if (typeof FaceDetection !== 'undefined') {
-            faceDetection = new FaceDetection({
-                locateFile: (file) => {
-                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`;
-                }
-            });
-            faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
-            faceDetection.onResults(handleFaceDetection);
-            console.log("✅ Face Detection model loaded");
-        }
-        
+        // Load FaceMesh model
         if (typeof FaceMesh !== 'undefined') {
             faceMesh = new FaceMesh({
                 locateFile: (file) => {
                     return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
                 }
             });
+            
             faceMesh.setOptions({
-                maxNumFaces: 1,
+                maxNumFaces: 2,
                 refineLandmarks: true,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
-            faceMesh.onResults(handleFaceMesh);
-            console.log("✅ Face Mesh model loaded");
+            
+            faceMesh.onResults(handleFaceMeshResults);
+            console.log("✅ FaceMesh model loaded");
+        } else {
+            console.warn("FaceMesh not available");
         }
+        
     } catch (error) {
         console.error("Error loading AI models:", error);
         throw error;
@@ -164,9 +209,6 @@ function setupSecurityBlockers() {
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', handlePageHide);
-    
     securityBlockersActive = true;
     console.log("✅ Security blockers activated");
 }
@@ -184,9 +226,6 @@ function removeSecurityBlockers() {
     document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
     document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
-    
-    window.removeEventListener('beforeunload', handleBeforeUnload);
-    window.removeEventListener('pagehide', handlePageHide);
     
     securityBlockersActive = false;
 }
@@ -272,23 +311,7 @@ function handleVisibilityChange() {
     if (!isExamActive) return;
     
     if (document.hidden) {
-        addWarning("Tab switching detected");
-        showTabSwitchWarning();
-    }
-}
-
-function handleBeforeUnload(e) {
-    if (isExamActive) {
-        cleanupProctoring();
-        const message = "Are you sure you want to leave? Your exam will be submitted automatically with violations recorded.";
-        e.returnValue = message;
-        return message;
-    }
-}
-
-function handlePageHide() {
-    if (isExamActive) {
-        cleanupProctoring();
+        submitAnswers("Tab switch detected - auto submitted");
     }
 }
 
@@ -296,6 +319,27 @@ function preventDefault(e) {
     if (isExamActive) {
         e.preventDefault();
         return false;
+    }
+}
+
+function forceFullscreen() {
+    const elem = document.documentElement;
+
+    try {
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+        } else if (elem.mozRequestFullScreen) {
+            elem.mozRequestFullScreen();
+        } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+            elem.msRequestFullscreen();
+        }
+
+        console.log("✅ Fullscreen enforced");
+    } catch (e) {
+        console.warn("Fullscreen denied:", e);
+        addWarning("Fullscreen mode could not be enabled");
     }
 }
 
@@ -309,11 +353,7 @@ async function requestCameraAndMic() {
                 height: { ideal: 480 },
                 facingMode: 'user'
             },
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
+            audio: false
         });
         
         cameraStream = stream;
@@ -324,124 +364,392 @@ async function requestCameraAndMic() {
             await video.play();
         }
         
-        setupAudioAnalysis(stream);
-        
-        console.log("✅ Camera & Microphone enabled");
+        console.log("✅ Camera enabled (640x480)");
         return true;
         
     } catch (err) {
-        console.error("Camera/Mic permission denied:", err);
-        alert("❌ Camera & Microphone permission is REQUIRED for this proctored exam.\n\nPlease enable camera and microphone access, then refresh the page.");
+        console.error("Camera permission denied:", err);
+        alert("❌ Camera permission is REQUIRED for this proctored exam.\n\nPlease enable camera access, then refresh the page.");
         return false;
     } finally {
         hideLoading();
     }
 }
 
-function setupAudioAnalysis(stream) {
+// Text-to-Speech Functionality
+function speakText(text) {
+    if (!isAccessibleMode || !window.speechSynthesis) return;
+    
     try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        microphone = audioContext.createMediaStreamSource(stream);
+        // Cancel any ongoing speech
+        window.speechSynthesis.cancel();
         
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.8;
-        microphone.connect(analyser);
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        utterance.lang = 'en-US';
         
-        timeDomainArray = new Float32Array(analyser.fftSize);
+        // Set a voice if available
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            const femaleVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Google UK English Female'));
+            if (femaleVoice) {
+                utterance.voice = femaleVoice;
+            }
+        }
         
-        console.log("✅ Audio analysis setup complete");
+        window.speechSynthesis.speak(utterance);
+        currentSpeech = utterance;
     } catch (error) {
-        console.error("Audio analysis setup failed:", error);
+        console.error("Text-to-speech error:", error);
+    }
+}
+
+// Speech-to-Text Functionality
+function setupSpeechRecognition() {
+    if (!isAccessibleMode) return;
+    
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.warn("Speech recognition not supported in this browser");
+        if (isExamActive) {
+            speakText("Speech recognition not supported in this browser. Please use Chrome for accessibility features.");
+        }
+        return;
+    }
+    
+    try {
+        speechRecognition = new SpeechRecognition();
+        speechRecognition.continuous = true;
+        speechRecognition.interimResults = false;
+        speechRecognition.lang = 'en-US';
+        speechRecognition.maxAlternatives = 1;
+        
+        speechRecognition.onresult = (event) => {
+            try {
+                const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+                console.log("Voice command:", transcript);
+                handleVoiceCommand(transcript);
+            } catch (error) {
+                console.error("Error processing speech result:", error);
+            }
+        };
+        
+        speechRecognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                console.warn("Microphone access denied for speech recognition");
+                isListening = false;
+            }
+        };
+        
+        speechRecognition.onend = () => {
+            console.log("Speech recognition ended");
+            // Safe restart with delay to prevent rapid cycling
+            if (isExamActive && isAccessibleMode && isListening && !isRestartingSpeech) {
+                isRestartingSpeech = true;
+                setTimeout(() => {
+                    try {
+                        if (isExamActive && isAccessibleMode && isListening && speechRecognition) {
+                            speechRecognition.start();
+                            console.log("Speech recognition restarted");
+                        }
+                    } catch (e) {
+                        console.error("Failed to restart speech recognition:", e);
+                        isListening = false;
+                    } finally {
+                        isRestartingSpeech = false;
+                    }
+                }, 1000);
+            }
+        };
+        
+        // Start listening if in accessible mode and exam active
+        if (isExamActive) {
+            startListening();
+        }
+    } catch (error) {
+        console.error("Failed to setup speech recognition:", error);
+    }
+}
+
+function startListening() {
+    if (!isAccessibleMode || !speechRecognition || isListening) return;
+    
+    try {
+        speechRecognition.start();
+        isListening = true;
+        console.log("🎤 Speech recognition started");
+    } catch (error) {
+        console.error("Failed to start speech recognition:", error);
+        isListening = false;
+    }
+}
+
+function stopListening() {
+    if (!speechRecognition || !isListening) return;
+    
+    try {
+        speechRecognition.stop();
+        isListening = false;
+        console.log("🎤 Speech recognition stopped");
+    } catch (error) {
+        console.error("Failed to stop speech recognition:", error);
+    }
+}
+
+function handleVoiceCommand(command) {
+    if (!isExamActive) return;
+    
+    console.log("Processing voice command:", command);
+    
+    // Navigation commands
+    if (command.includes('next') || command.includes('move forward') || command.includes('forward')) {
+        if (currentQuestion < currentExam.questions.length - 1) {
+            window.nextQuestion();
+            speakText("Moving to next question.");
+        } else {
+            speakText("This is the last question.");
+        }
+        return;
+    }
+    
+    if (command.includes('previous') || command.includes('move back') || command.includes('back') || command.includes('go back')) {
+        if (currentQuestion > 0) {
+            window.prevQuestion();
+            speakText("Moving to previous question.");
+        } else {
+            speakText("This is the first question.");
+        }
+        return;
+    }
+    
+    if (command.includes('repeat') || command.includes('say again') || command.includes('again')) {
+        speakCurrentQuestion();
+        return;
+    }
+    
+    // Option selection commands
+    const currentQ = currentExam.questions[currentQuestion];
+    if (currentQ.type === "mcq") {
+        // Check for number commands
+        if (command.includes('1') || command.includes('one') || command.includes('a') || command.includes('option 1') || command.includes('first')) {
+            selectOption(0);
+            return;
+        }
+        if (command.includes('2') || command.includes('two') || command.includes('b') || command.includes('option 2') || command.includes('second')) {
+            selectOption(1);
+            return;
+        }
+        if (command.includes('3') || command.includes('three') || command.includes('c') || command.includes('option 3') || command.includes('third')) {
+            selectOption(2);
+            return;
+        }
+        if (command.includes('4') || command.includes('four') || command.includes('d') || command.includes('option 4') || command.includes('fourth')) {
+            selectOption(3);
+            return;
+        }
+    }
+}
+
+function selectOption(optionIndex) {
+    const currentQ = currentExam.questions[currentQuestion];
+    if (currentQ.type === "mcq" && optionIndex < currentQ.options.length) {
+        answers[currentQuestion] = optionIndex;
+        updateQuestionGrid();
+        
+        // Speak confirmation
+        speakText(`Selected option ${optionIndex + 1}. ${currentQ.options[optionIndex]}`);
+        
+        // Auto-advance to next question after a short delay
+        if (currentQuestion < currentExam.questions.length - 1) {
+            setTimeout(() => {
+                window.nextQuestion();
+            }, 1500);
+        } else {
+            speakText("This was the last question. You can submit the exam when ready.");
+        }
+    }
+}
+
+function speakCurrentQuestion() {
+    if (!isAccessibleMode || !currentExam) return;
+    
+    try {
+        const question = currentExam.questions[currentQuestion];
+        let speechText = `Question ${currentQuestion + 1}. ${question.question_text}. `;
+        
+        if (question.type === "mcq" && question.options) {
+            speechText += `Options: `;
+            question.options.forEach((option, index) => {
+                speechText += `Option ${index + 1}. ${option}. `;
+            });
+        } else if (question.type === "short") {
+            speechText += `This is a short answer question. Please speak your answer clearly.`;
+        }
+        
+        speakText(speechText);
+    } catch (error) {
+        console.error("Error speaking question:", error);
     }
 }
 
 function startProctoring() {
-    if (isProctoringActive || !isExamActive) return;
+    if (isProctoringActive) return;
+    
+    stopProctoring();
     
     isProctoringActive = true;
     startExamTime = Date.now();
-    console.log("🚀 Starting proctoring...");
+    console.log("🚀 Starting AI proctoring...");
     
-    if (faceDetection && !faceInterval) {
-        faceInterval = setInterval(async () => {
-            if (!faceDetection || !isExamActive) return;
-            
-            try {
-                const video = document.getElementById("videoElement");
-                if (!video) return;
-                
-                await faceDetection.send({ image: video });
-            } catch (error) {
-                console.error("Face detection error:", error);
-            }
-        }, DETECTION_INTERVAL);
+    // Initialize speech recognition if in accessible mode
+    if (isAccessibleMode) {
+        setupSpeechRecognition();
+        // Speak exam start message
+        setTimeout(() => {
+            speakText(`Exam started. There are ${currentExam.questions.length} questions. ${currentExam.questions.length > 1 ? 'Say "next" to move to the next question, "previous" to go back, or "repeat" to hear the current question again.' : ''}`);
+        }, 1000);
     }
     
-    if (analyser && !audioInterval) {
-        audioInterval = setInterval(() => {
-            if (!analyser || !timeDomainArray || !isExamActive) return;
-            
-            analyser.getFloatTimeDomainData(timeDomainArray);
-            
-            let sum = 0;
-            for (let i = 0; i < timeDomainArray.length; i++) {
-                sum += timeDomainArray[i] * timeDomainArray[i];
+    // Start face detection with requestAnimationFrame throttled to 6 FPS
+    if (faceMesh) {
+        let lastFaceTime = 0;
+        const FACE_FPS = 6;
+        
+        function faceLoop(timestamp) {
+            if (!isExamActive || !faceMesh) {
+                if (faceAnimationFrame) {
+                    cancelAnimationFrame(faceAnimationFrame);
+                    faceAnimationFrame = null;
+                }
+                return;
             }
             
-            const rms = Math.sqrt(sum / timeDomainArray.length);
-            
-            if (rms > AUDIO_THRESHOLD) {
-                speakingTime += 0.5;
-                totalSpeakingTime += 0.5;
-            } else {
-                speakingTime = Math.max(0, speakingTime - 0.2);
-            }
-            
-            if (speakingTime >= SPEAKING_TIME_THRESHOLD) {
-                addWarning('Speaking detected continuously');
-                speakingTime = 0;
-            }
-            
-            updateAudioStatus(rms);
-        }, 500);
-    }
-    
-    if (objectDetection && !objectInterval) {
-        objectInterval = setInterval(async () => {
-            if (!objectDetection || !isExamActive) return;
-            
-            try {
+            if (timestamp - lastFaceTime >= 1000 / FACE_FPS) {
                 const video = document.getElementById("videoElement");
-                if (!video) return;
-                
-                const predictions = await objectDetection.detect(video);
-                const suspicious = predictions.filter(p => 
-                    p.score >= OBJECT_SCORE_THRESHOLD && 
-                    SUSPICIOUS_OBJECTS.some(obj => 
-                        p.class.toLowerCase().includes(obj.toLowerCase())
-                    )
-                );
-                
-                if (suspicious.length > 0) {
-                    const now = Date.now();
-                    if (now - lastObjectWarningTime >= OBJECT_WARNING_COOLDOWN) {
-                        const objectNames = [...new Set(suspicious.map(p => p.class))].join(', ');
-                        addWarning(`Suspicious object detected: ${objectNames}`);
-                        lastObjectWarningTime = now;
+                if (video && video.readyState >= 2) {
+                    try {
+                        faceMesh.send({ image: video });
+                    } catch (error) {
+                        console.error("FaceMesh error:", error);
                     }
-                    detectedObjects = suspicious;
-                } else {
-                    detectedObjects = [];
+                }
+                lastFaceTime = timestamp;
+            }
+            
+            faceAnimationFrame = requestAnimationFrame(faceLoop);
+        }
+        
+        faceAnimationFrame = requestAnimationFrame(faceLoop);
+    }
+    
+    // Object detection every 2 seconds using COCO-SSD with detection lock
+    if (cocoModel) {
+        objectInterval = setInterval(async () => {
+            // Prevent overlapping detection calls
+            if (isDetectingObject) {
+                console.log("Object detection already in progress, skipping...");
+                return;
+            }
+            
+            if (!cocoModel || !isExamActive) return;
+            
+            isDetectingObject = true;
+            
+            try {
+                const video = document.getElementById("videoElement");
+                if (!video || video.readyState < 2) {
+                    isDetectingObject = false;
+                    return;
                 }
                 
-                updateObjectDetectionStatus();
+                // Run COCO-SSD detection
+                const predictions = await cocoModel.detect(video);
+                
+                // Optional debug logging (5% of cycles)
+                if (Math.random() < 0.05) {
+                    console.log("Object detection predictions:", 
+                        predictions.map(p => ({
+                            class: p.class,
+                            score: p.score.toFixed(2)
+                        }))
+                    );
+                }
+                
+                if (predictions && predictions.length > 0) {
+                    const suspicious = [];
+                    
+                    for (const prediction of predictions) {
+                        const label = prediction.class.toLowerCase();
+                        const score = prediction.score;
+                        
+                        // Check for suspicious objects with threshold 0.35
+                        if (score > 0.35 && (
+                            label.includes('cell phone') || 
+                            label.includes('mobile phone') ||
+                            label.includes('phone') ||
+                            label.includes('book') ||
+                            label.includes('laptop')
+                        )) {
+                            suspicious.push({
+                                class: prediction.class,
+                                score: prediction.score,
+                                bbox: prediction.bbox
+                            });
+                        }
+                    }
+                    
+                    // Add to object history buffer for smoothing (size 3)
+                    objectHistory.push(suspicious.length > 0);
+                    if (objectHistory.length > OBJECT_HISTORY_SIZE) {
+                        objectHistory.shift();
+                    }
+                    
+                    // Smoothing: Confirm if at least 2 out of last 3 cycles detected objects
+                    let confirmedDetection = false;
+                    if (objectHistory.length >= 2) {
+                        const trueCount = objectHistory.filter(v => v === true).length;
+                        confirmedDetection = trueCount >= 2;
+                    }
+                    
+                    if (confirmedDetection && suspicious.length > 0) {
+                        const now = Date.now();
+                        if (now - lastObjectWarningTime >= OBJECT_WARNING_COOLDOWN) {
+                            const objectNames = [...new Set(suspicious.map(p => p.class))].join(', ');
+                            addWarning(`Suspicious object detected`);
+                            lastObjectWarningTime = now;
+                        }
+                        detectedObjects = suspicious;
+                    } else {
+                        detectedObjects = [];
+                    }
+                    
+                    updateObjectDetectionStatus();
+                } else {
+                    objectHistory.push(false);
+                    if (objectHistory.length > OBJECT_HISTORY_SIZE) {
+                        objectHistory.shift();
+                    }
+                    detectedObjects = [];
+                    updateObjectDetectionStatus();
+                }
             } catch (error) {
                 console.error("Object detection error:", error);
+                objectHistory.push(false);
+                if (objectHistory.length > OBJECT_HISTORY_SIZE) {
+                    objectHistory.shift();
+                }
+                detectedObjects = [];
+                updateObjectDetectionStatus();
+            } finally {
+                isDetectingObject = false;
             }
         }, OBJECT_CHECK_INTERVAL);
     }
     
+    // UI updates every second
     if (!uiInterval) {
         uiInterval = setInterval(() => {
             if (!isExamActive) return;
@@ -459,14 +767,9 @@ function startProctoring() {
 function stopProctoring() {
     isProctoringActive = false;
     
-    if (faceInterval) {
-        clearInterval(faceInterval);
-        faceInterval = null;
-    }
-    
-    if (audioInterval) {
-        clearInterval(audioInterval);
-        audioInterval = null;
+    if (faceAnimationFrame) {
+        cancelAnimationFrame(faceAnimationFrame);
+        faceAnimationFrame = null;
     }
     
     if (objectInterval) {
@@ -479,7 +782,83 @@ function stopProctoring() {
         uiInterval = null;
     }
     
+    // Stop speech recognition and synthesis
+    stopListening();
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    isDetectingObject = false;
+    isRestartingSpeech = false;
+    poseHistory = [];
+    objectHistory = [];
+    
     console.log("✅ Proctoring stopped");
+}
+
+function handleFaceMeshResults(results) {
+    if (!results || !results.multiFaceLandmarks) {
+        faceDetected = false;
+        multipleFaces = false;
+        isLookingAtScreen = false;
+        poseHistory = [];
+        return;
+    }
+
+    const numFaces = results.multiFaceLandmarks.length;
+    faceDetected = numFaces > 0;
+    multipleFaces = numFaces > 1;
+
+    if (multipleFaces && isExamActive) {
+        addWarning('Multiple faces detected');
+    }
+
+    if (faceDetected) {
+        const faceLandmarks = results.multiFaceLandmarks[0];
+        
+        try {
+            // Extract key landmarks
+            const noseTip = faceLandmarks[LANDMARK_INDICES.NOSE_TIP];
+            const leftEye = faceLandmarks[LANDMARK_INDICES.LEFT_EYE_OUTER];
+            const rightEye = faceLandmarks[LANDMARK_INDICES.RIGHT_EYE_OUTER];
+            
+            if (noseTip && leftEye && rightEye) {
+                // Calculate eye center position
+                const eyeCenterX = (leftEye.x + rightEye.x) / 2;
+                
+                // Calculate head offset (nose position relative to eye center)
+                const headOffset = noseTip.x - eyeCenterX;
+                
+                // Add to pose history buffer for smoothing
+                poseHistory.push(headOffset);
+                if (poseHistory.length > POSE_HISTORY_SIZE) {
+                    poseHistory.shift();
+                }
+                
+                // Calculate moving average for smooth head pose detection
+                let smoothedOffset = headOffset;
+                if (poseHistory.length > 0) {
+                    const sum = poseHistory.reduce((a, b) => a + b, 0);
+                    smoothedOffset = sum / poseHistory.length;
+                }
+                
+                // Determine if looking at screen based on threshold
+                isLookingAtScreen = smoothedOffset >= -HEAD_OFFSET_THRESHOLD && 
+                                   smoothedOffset <= HEAD_OFFSET_THRESHOLD;
+                
+                // Debug logging
+                if (Math.random() < 0.02) {
+                    console.log(`Head offset: ${smoothedOffset.toFixed(4)}, Looking: ${isLookingAtScreen}`);
+                }
+            } else {
+                isLookingAtScreen = false;
+            }
+        } catch (error) {
+            console.error("Error processing face landmarks:", error);
+            isLookingAtScreen = false;
+        }
+    } else {
+        isLookingAtScreen = false;
+    }
 }
 
 function checkFaceTimeout() {
@@ -496,58 +875,24 @@ function checkFaceTimeout() {
 }
 
 function checkLookingAwayTimeout() {
+    if (isLookingAtScreen) {
+        // Reset timer if looking at screen
+        lookingAwayStartTime = null;
+        return;
+    }
+    
     if (!isLookingAtScreen && isExamActive) {
         if (!lookingAwayStartTime) {
             lookingAwayStartTime = Date.now();
         } else {
             const awayTime = Date.now() - lookingAwayStartTime;
-            totalLookingAwayTime += 0.1;
             
-            if (awayTime > LOOK_AWAY_TIMEOUT) {
-                addWarning('Looking away from screen for extended period');
-                lookingAwayStartTime = Date.now();
+            if (awayTime > REQUIRED_AWAY_TIME) {
+                if (!isLookingAtScreen) {
+                    addWarning('Looking away from screen for extended period');
+                    lookingAwayStartTime = Date.now();
+                }
             }
-        }
-    } else {
-        lookingAwayStartTime = null;
-    }
-}
-
-function handleFaceDetection(results) {
-    if (!results || !results.detections) {
-        faceDetected = false;
-        multipleFaces = false;
-        return;
-    }
-    
-    const numFaces = results.detections.length;
-    faceDetected = numFaces > 0;
-    multipleFaces = numFaces > 1;
-    
-    if (multipleFaces && isExamActive) {
-        addWarning('Multiple faces detected');
-    }
-    
-    if (faceDetected && faceMesh) {
-        const video = document.getElementById("videoElement");
-        if (video) {
-            faceMesh.send({ image: video });
-        }
-    }
-}
-
-function handleFaceMesh(results) {
-    if (!results || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-        isLookingAtScreen = false;
-        return;
-    }
-    
-    const landmarks = results.multiFaceLandmarks[0];
-    if (landmarks && landmarks.length > 0) {
-        const nose = landmarks[1];
-        if (nose) {
-            const noseX = nose.x;
-            isLookingAtScreen = noseX > 0.3 && noseX < 0.7;
         }
     }
 }
@@ -573,10 +918,10 @@ function updateHeadPoseStatus() {
     if (!headPoseElement) return;
     
     if (isLookingAtScreen) {
-        headPoseElement.textContent = "✅ Center";
+        headPoseElement.textContent = "✅ Looking at Screen";
         headPoseElement.style.color = "#28a745";
     } else {
-        headPoseElement.textContent = "⚠️ Away";
+        headPoseElement.textContent = "⚠️ Looking Away";
         headPoseElement.style.color = "#ffc107";
     }
 }
@@ -589,7 +934,7 @@ function createHeadPoseElement() {
     statItem.className = "stat-item";
     statItem.innerHTML = `
         <span><i class="fas fa-head-side-vision"></i> Head Position</span>
-        <span id="headPoseStatus" style="color: #28a745;">✅ Center</span>
+        <span id="headPoseStatus" style="color: #28a745;">✅ Looking at Screen</span>
     `;
     
     monitoringStats.appendChild(statItem);
@@ -604,7 +949,7 @@ function updateObjectDetectionStatus() {
         objectStatus.textContent = "✅ None";
         objectStatus.style.color = "#28a745";
     } else {
-        const objects = [...new Set(detectedObjects.map(obj => obj.class))].join(', ');
+        const objects = [...new Set(detectedObjects.map(d => d.class))].join(', ');
         objectStatus.textContent = `⚠️ ${objects}`;
         objectStatus.style.color = "#ffc107";
     }
@@ -623,41 +968,6 @@ function createObjectStatusElement() {
     
     monitoringStats.appendChild(statItem);
     return document.getElementById("objectStatus");
-}
-
-function updateAudioStatus(volume) {
-    const audioStatus = document.getElementById("audioStatus");
-    if (!audioStatus) return;
-    
-    if (volume > AUDIO_THRESHOLD) {
-        audioStatus.textContent = "🗣️ Speaking";
-        audioStatus.style.color = "#ffc107";
-    } else {
-        audioStatus.textContent = "✅ Normal";
-        audioStatus.style.color = "#28a745";
-    }
-}
-
-function forceFullscreen() {
-    try {
-        const elem = document.documentElement;
-        
-        if (elem.requestFullscreen) {
-            elem.requestFullscreen();
-        } else if (elem.mozRequestFullScreen) {
-            elem.mozRequestFullScreen();
-        } else if (elem.webkitRequestFullscreen) {
-            elem.webkitRequestFullscreen();
-        } else if (elem.msRequestFullscreen) {
-            elem.msRequestFullscreen();
-        }
-        
-        console.log("✅ Fullscreen enforced");
-        
-    } catch (error) {
-        console.warn("Fullscreen denied:", error);
-        addWarning("Fullscreen mode could not be enabled");
-    }
 }
 
 function showTabSwitchWarning() {
@@ -869,7 +1179,7 @@ window.startExam = async function () {
         initializeExamUI();
         startTimer();
         
-        console.log("✅ AI-proctored exam started successfully");
+        console.log("✅ AI-proctored exam started");
         
     } catch (error) {
         console.error("❌ Error starting exam:", error);
@@ -890,6 +1200,11 @@ function cleanupProctoring() {
         cameraStream = null;
     }
     
+    const video = document.getElementById("videoElement");
+    if (video) {
+        video.srcObject = null;
+    }
+    
     if (microphone) {
         microphone.disconnect();
         microphone = null;
@@ -901,29 +1216,31 @@ function cleanupProctoring() {
     }
     
     if (audioContext) {
-        audioContext.close().catch(console.error);
+        audioContext.close();
         audioContext = null;
     }
     
-    removeSecurityBlockers();
-    
-    if (document.fullscreenElement || 
-        document.webkitFullscreenElement || 
-        document.mozFullScreenElement || 
-        document.msFullscreenElement) {
-        
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-            document.mozCancelFullScreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        } else if (document.msExitFullscreen) {
-            document.msExitFullscreen();
-        }
+    // Clean up accessibility features
+    stopListening();
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    if (accessibilityLabel && accessibilityLabel.parentNode) {
+        accessibilityLabel.parentNode.removeChild(accessibilityLabel);
     }
     
-    console.log("✅ Proctoring system cleaned up");
+    faceMesh = null;
+    cocoModel = null;
+    poseHistory = [];
+    objectHistory = [];
+    isDetectingObject = false;
+    isRestartingSpeech = false;
+    
+    removeSecurityBlockers();
+    
+    document.exitFullscreen?.();
+    
+    console.log("✅ Camera + Fullscreen cleaned up");
 }
 
 async function submitAnswers(autoSubmitReason = null) {
@@ -943,10 +1260,9 @@ async function submitAnswers(autoSubmitReason = null) {
         const proctoringData = {
             warnings: warningCount,
             warning_history: warningHistory,
-            speaking_time: Math.round(totalSpeakingTime),
-            looking_away_time: Math.round(totalLookingAwayTime),
-            detected_objects: detectedObjects.map(obj => obj.class),
-            exam_duration: startExamTime ? Math.round((Date.now() - startExamTime) / 1000) : 0
+            detected_objects: detectedObjects.map(d => d.class || 'Object'),
+            exam_duration: startExamTime ? Math.round((Date.now() - startExamTime) / 1000) : 0,
+            accessible_mode: isAccessibleMode
         };
         
         cleanupProctoring();
@@ -1154,6 +1470,11 @@ function loadQuestion(index) {
     
     updateQuestionGrid();
     updateNavigationButtons();
+    
+    // Speak the question if in accessible mode
+    if (isAccessibleMode && isExamActive) {
+        speakCurrentQuestion();
+    }
 }
 
 function updateNavigationButtons() {
@@ -1219,4 +1540,14 @@ window.submitExam = function() {
     }
 };
 
-console.log("✅ AI Proctoring System fully loaded and ready");
+window.addEventListener("pagehide", cleanupProctoring);
+window.addEventListener("beforeunload", function(e) {
+    if (isExamActive) {
+        cleanupProctoring();
+        const message = "Are you sure you want to leave? Your exam will be submitted automatically with violations recorded.";
+        e.returnValue = message;
+        return message;
+    }
+});
+
+console.log("✅ PRODUCTION PROCTORING SYSTEM READY - STABLE BUILD");
