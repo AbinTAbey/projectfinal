@@ -1,12 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard - Exam System</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background: linear-gradient(135deg, #4361ee, #7209b7);
+            box-shadow: 0 0 10px rgba(67, 97, 238, 0.6), 0 0 20px rgba(67, 97, 238, 0.4);
+        }
+
+        input:focus+.slider {
+            box-shadow: 0 0 1px #4361ee;
+        }
+
+        input:checked+.slider:before {
+            -webkit-transform: translateX(20px);
+            -ms-transform: translateX(20px);
+            transform: translateX(20px);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 10px rgba(67, 97, 238, 0.6), 0 0 20px rgba(67, 97, 238, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 15px rgba(67, 97, 238, 0.8), 0 0 30px rgba(67, 97, 238, 0.6);
+            }
+        }
+
+        input:checked+.slider {
+            animation: pulse 2s infinite;
+        }
+    </style>
 </head>
+
 <body>
     <div class="dashboard">
         <!-- Sidebar -->
@@ -31,6 +96,21 @@
                     <i class="fas fa-chart-line"></i>
                     <span>Results</span>
                 </a>
+
+                <div class="menu-item" style="justify-content: space-between; cursor: default;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-universal-access"></i>
+                        <span>Accessibility Mode</span>
+                    </div>
+                    <label class="switch"
+                        style="position: relative; display: inline-block; width: 34px; height: 18px; margin: 0;"
+                        onclick="event.stopPropagation()">
+                        <input type="checkbox" id="accessibilityToggle">
+                        <span class="slider round"
+                            style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
+                    </label>
+                </div>
+
                 <a href="#" class="menu-item" onclick="logout()">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Logout</span>
@@ -103,8 +183,9 @@
                         </tbody>
                     </table>
                 </div>
-                
-                <div style="margin-top: 40px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
+
+                <div
+                    style="margin-top: 40px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <h3><i class="fas fa-key"></i> Have an exam code?</h3>
@@ -123,22 +204,22 @@
                     <h2 style="text-align: center; margin-bottom: 30px;">
                         <i class="fas fa-key"></i> Enter Exam Code
                     </h2>
-                    
+
                     <div class="input-group">
                         <label for="examCodeInput">Exam Code</label>
-                        <input type="text" id="examCodeInput" placeholder="Enter 8-digit exam code (e.g., ABC123XY)" 
-                               style="text-align: center; letter-spacing: 2px; font-weight: bold; font-size: 18px;">
+                        <input type="text" id="examCodeInput" placeholder="Enter 8-digit exam code (e.g., ABC123XY)"
+                            style="text-align: center; letter-spacing: 2px; font-weight: bold; font-size: 18px;">
                         <small style="display: block; margin-top: 5px; color: #666;">
                             Get this code from your teacher
                         </small>
                     </div>
-                    
+
                     <div class="text-center" style="margin-top: 30px;">
                         <button class="btn btn-primary" onclick="validateExamCode()" style="min-width: 200px;">
                             <i class="fas fa-check"></i> Validate & Start Exam
                         </button>
                     </div>
-                    
+
                     <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 10px;">
                         <h4><i class="fas fa-info-circle"></i> How to get an exam code?</h4>
                         <ol style="margin-left: 20px; margin-top: 10px;">
@@ -245,11 +326,12 @@
     </div>
 
     <script src="js/config.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/student.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/student.js"></script>
 
 
 
 
 </body>
+
 </html>

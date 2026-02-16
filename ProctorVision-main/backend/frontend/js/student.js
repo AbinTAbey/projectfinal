@@ -48,6 +48,19 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("validateCodeBtn")?.addEventListener("click", validateExamCode);
 
     // Initialize
+    const isAccessible = localStorage.getItem("accessibilityMode") === "true";
+    const toggle = document.getElementById("accessibilityToggle");
+    if (toggle) {
+        toggle.checked = isAccessible;
+        console.log("✅ Accessibility toggle initialized:", isAccessible);
+        toggle.addEventListener("change", (e) => {
+            localStorage.setItem("accessibilityMode", e.target.checked);
+            console.log("🔄 Accessibility mode changed to:", e.target.checked);
+        });
+    } else {
+        console.warn("⚠️ Accessibility toggle element not found!");
+    }
+
     showPage("dashboardContent");
     loadStudentDashboard();
 });
@@ -70,7 +83,7 @@ function showPage(pageId) {
 async function validateExamCode() {
     const codeInput = document.getElementById("examCodeInput");
     const code = codeInput.value.trim().toUpperCase();
-    
+
     if (!code) {
         alert("Please enter an exam code");
         return;
@@ -78,7 +91,7 @@ async function validateExamCode() {
 
     try {
         const token = localStorage.getItem("token");
-        
+
         // Validate exam code with backend
         const response = await fetch(`${API_BASE_URL}/exams/${code}`, {
             headers: {
@@ -98,8 +111,11 @@ async function validateExamCode() {
         }
 
         // Exam is valid, redirect to exam page
-        window.location.href = `exam.html?code=${code}`;
-        
+        const isAccessible = document.getElementById("accessibilityToggle")?.checked || false;
+        console.log("🔍 Accessibility Toggle State:", isAccessible);
+        console.log("🔍 Toggle Element:", document.getElementById("accessibilityToggle"));
+        window.location.href = `exam.html?code=${code}${isAccessible ? '&accessible=true' : ''}`;
+
     } catch (error) {
         console.error("Error validating exam code:", error);
         alert(error.message || "Failed to validate exam code. Please try again.");
@@ -112,7 +128,7 @@ async function validateExamCode() {
 async function loadStudentDashboard() {
     try {
         const token = localStorage.getItem("token");
-        
+
         // Load student's active exams
         const response = await fetch(`${API_BASE_URL}/exams/student/active`, {
             headers: {
@@ -123,10 +139,13 @@ async function loadStudentDashboard() {
 
         if (response.ok) {
             const exams = await response.json();
-            
-            // Update dashboard stats
-            document.getElementById("activeExams").textContent = exams.length;
-            
+
+            // Update dashboard stats (if element exists)
+            const activeExamsElement = document.getElementById("activeExams");
+            if (activeExamsElement) {
+                activeExamsElement.textContent = exams.length;
+            }
+
             // Load recent exams
             const table = document.querySelector("#activeExamsTable tbody");
             if (table) {
@@ -152,14 +171,15 @@ async function loadStudentDashboard() {
 }
 
 function startExam(examCode) {
-    window.location.href = `exam.html?code=${examCode}`;
+    const isAccessible = document.getElementById("accessibilityToggle")?.checked || false;
+    window.location.href = `exam.html?code=${examCode}${isAccessible ? '&accessible=true' : ''}`;
 }
 
 // ================= MY EXAMS =================
 async function loadMyExams() {
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/student/all`, {
             headers: {
                 "Authorization": `Bearer ${token}`,
@@ -168,14 +188,14 @@ async function loadMyExams() {
         });
 
         if (!response.ok) {
-            document.querySelector("#myExamsTable tbody").innerHTML = 
+            document.querySelector("#myExamsTable tbody").innerHTML =
                 "<tr><td colspan='5'>No exams available</td></tr>";
             return;
         }
-        
+
         const exams = await response.json();
         const table = document.querySelector("#myExamsTable tbody");
-        
+
         if (table) {
             table.innerHTML = "";
             exams.forEach(exam => {
@@ -202,7 +222,7 @@ async function loadMyExams() {
 async function loadMyResults() {
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/student/submissions`, {
             headers: {
                 "Authorization": `Bearer ${token}`,
@@ -211,14 +231,14 @@ async function loadMyResults() {
         });
 
         if (!response.ok) {
-            document.querySelector("#resultsTable tbody").innerHTML = 
+            document.querySelector("#resultsTable tbody").innerHTML =
                 "<tr><td colspan='6'>No results yet</td></tr>";
             return;
         }
-        
+
         const submissions = await response.json();
         const table = document.querySelector("#resultsTable tbody");
-        
+
         if (table) {
             table.innerHTML = "";
             submissions.forEach(sub => {
@@ -244,7 +264,8 @@ async function loadMyResults() {
 
 function viewExam(examCode) {
     if (confirm("Do you want to view this exam?")) {
-        window.location.href = `exam.html?code=${examCode}`;
+        const isAccessible = document.getElementById("accessibilityToggle")?.checked || false;
+        window.location.href = `exam.html?code=${examCode}${isAccessible ? '&accessible=true' : ''}`;
     }
 }
 
@@ -262,6 +283,6 @@ window.validateExamCode = validateExamCode;
 window.startExam = startExam;
 window.viewExam = viewExam;
 window.logout = logout;
-window.closeModal = function(modalId) {
+window.closeModal = function (modalId) {
     document.getElementById(modalId).style.display = 'none';
 };
