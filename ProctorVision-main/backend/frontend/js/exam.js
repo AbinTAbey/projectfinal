@@ -322,6 +322,7 @@ function handleVisibilityChange() {
     if (!isExamActive) return;
 
     if (document.hidden) {
+        persistViolationToBackend('Tab switch detected');
         submitAnswers("Tab switch detected - auto submitted");
     }
 }
@@ -1073,6 +1074,70 @@ function showTabSwitchWarning() {
     }
 }
 
+/**
+ * Map a human-readable warning reason to the canonical event_type used in the DB.
+ */
+function reasonToEventType(reason) {
+    const r = (reason || '').toLowerCase();
+    if (r.includes('no face') || r.includes('face not') || r.includes('face detected'))
+        return 'face_not_visible';
+    if (r.includes('multiple face'))
+        return 'multiple_faces';
+    if (r.includes('looking away') || r.includes('look away'))
+        return 'looking_away';
+    if (r.includes('phone') || r.includes('mobile') || r.includes('cell'))
+        return 'phone_detected';
+    if (r.includes('object') || r.includes('book') || r.includes('laptop'))
+        return 'phone_detected';   // map suspicious objects to phone_detected group
+    if (r.includes('tab') || r.includes('visibility') || r.includes('fullscreen'))
+        return 'tab_switch';
+    if (r.includes('voice') || r.includes('talking') || r.includes('speech'))
+        return 'voice_detected';
+    return 'tab_switch';           // safe fallback for key-block events etc.
+}
+
+/**
+ * Fire-and-forget: persist one warning event to the backend DB.
+ * Runs in background so it never blocks the UI.
+ */
+function persistViolationToBackend(reason) {
+    console.log('🔴 persistViolationToBackend called:', reason);
+    console.log('   currentAttempt:', currentAttempt);
+    console.log('   submission_id:', currentAttempt ? currentAttempt.submission_id : 'N/A');
+
+    if (!currentAttempt || !currentAttempt.submission_id) {
+        console.warn('🔴 persistViolationToBackend: NO submission_id, skipping!');
+        return;
+    }
+
+    const payload = {
+        event_type: reasonToEventType(reason),
+        reason: reason,
+        confidence: 1.0,
+        timestamp: new Date().toISOString()
+    };
+
+    const url = `${API_BASE_URL}/monitoring/log-event/${currentAttempt.submission_id}`;
+    console.log('🔴 Posting to:', url, 'payload:', payload);
+
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+    })
+        .then(res => {
+            console.log('🔴 persistViolationToBackend response:', res.status, res.statusText);
+            if (!res.ok) {
+                return res.text().then(t => console.error('🔴 Response body:', t));
+            }
+        })
+        .catch(err => console.error('🔴 persistViolationToBackend FETCH ERROR:', err));
+}
+
+
 function addWarning(reason) {
     if (!isExamActive) return;
 
@@ -1085,6 +1150,9 @@ function addWarning(reason) {
     };
 
     warningHistory.push(warning);
+
+    // ── Persist to DB in background ──
+    persistViolationToBackend(reason);
 
     updateWarningCount();
     showWarningMessage(reason);
@@ -1102,6 +1170,7 @@ function addWarning(reason) {
 
     console.log(`⚠️ Warning #${warningCount}: ${reason}`);
 }
+
 
 function updateWarningCount() {
     const warningCountEl = document.getElementById("warningCount");

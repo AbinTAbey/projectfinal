@@ -14,14 +14,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const userNameEl = document.getElementById("userName");
     const userEmailEl = document.getElementById("userEmail");
     const userAvatarEl = document.getElementById("userAvatar");
-    
+
     if (userNameEl) userNameEl.textContent = currentUser.name;
     if (userEmailEl) userEmailEl.textContent = currentUser.email;
     if (userAvatarEl) userAvatarEl.textContent = currentUser.name.charAt(0).toUpperCase();
 
     // Navigation setup
     setupNavigation();
-    
+
     // Create exam form
     const form = document.getElementById("createExamForm");
     if (form) {
@@ -41,8 +41,9 @@ function setupNavigation() {
     const navMap = {
         "dashboardLink": "dashboardContent",
         "createExamLink": "createExamContent",
-        "examsLink": "myExamsContent", 
-        "resultsLink": "resultsContent"
+        "examsLink": "myExamsContent",
+        "resultsLink": "resultsContent",
+        "malpracticeLink": "malpracticeContent"
     };
 
     Object.entries(navMap).forEach(([linkId, pageId]) => {
@@ -51,8 +52,7 @@ function setupNavigation() {
             link.addEventListener("click", (e) => {
                 e.preventDefault();
                 showPage(pageId);
-                
-                // Load data for specific pages
+
                 if (pageId === "dashboardContent") loadDashboardStats();
                 if (pageId === "myExamsContent") loadMyExams();
                 if (pageId === "resultsContent") loadResults();
@@ -63,7 +63,10 @@ function setupNavigation() {
 
 // ================= PAGE NAVIGATION =================
 function showPage(pageId) {
-    const pages = ["dashboardContent", "createExamContent", "myExamsContent", "resultsContent"];
+    const pages = [
+        "dashboardContent", "createExamContent",
+        "myExamsContent", "resultsContent", "malpracticeContent"
+    ];
     pages.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = id === pageId ? "block" : "none";
@@ -73,7 +76,7 @@ function showPage(pageId) {
     document.querySelectorAll(".menu-item").forEach(item => {
         item.classList.remove("active");
     });
-    
+
     const activeLink = document.getElementById(pageId.replace("Content", "Link"));
     if (activeLink) activeLink.classList.add("active");
 }
@@ -82,35 +85,35 @@ function showPage(pageId) {
 async function loadDashboardStats() {
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/my-exams`, {
-            headers: { 
+            headers: {
                 "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             }
         });
 
         if (!response.ok) throw new Error("Failed to load exams");
-        
+
         const exams = await response.json();
-        
+
         // Update dashboard stats
         const totalExamsEl = document.getElementById("totalExams");
         const completedExamsEl = document.getElementById("completedExams");
         const cheatingCasesEl = document.getElementById("cheatingCases");
         const totalStudentsEl = document.getElementById("totalStudents");
-        
+
         if (totalExamsEl) totalExamsEl.textContent = exams.length;
-        if (completedExamsEl) completedExamsEl.textContent = exams.reduce((total, exam) => 
+        if (completedExamsEl) completedExamsEl.textContent = exams.reduce((total, exam) =>
             total + (exam.submissions_count || 0), 0
         );
-        if (cheatingCasesEl) cheatingCasesEl.textContent = exams.reduce((total, exam) => 
+        if (cheatingCasesEl) cheatingCasesEl.textContent = exams.reduce((total, exam) =>
             total + (exam.cheating_cases || 0), 0
         );
-        if (totalStudentsEl) totalStudentsEl.textContent = exams.reduce((total, exam) => 
+        if (totalStudentsEl) totalStudentsEl.textContent = exams.reduce((total, exam) =>
             total + (exam.students_count || 0), 0
         );
-        
+
         // Load recent exams table
         const table = document.querySelector("#examsTable tbody");
         if (table) {
@@ -145,7 +148,7 @@ function addMCQ() {
     questionCounter++;
     const container = document.getElementById("questionsContainer");
     if (!container) return;
-    
+
     container.insertAdjacentHTML("beforeend", `
         <div class="question-item" data-type="mcq" data-id="${questionCounter}">
             <div class="question-header">
@@ -197,7 +200,7 @@ function addShortAnswer() {
     questionCounter++;
     const container = document.getElementById("questionsContainer");
     if (!container) return;
-    
+
     container.insertAdjacentHTML("beforeend", `
         <div class="question-item" data-type="short">
             <h4>Question ${questionCounter} (Short Answer)</h4>
@@ -237,10 +240,10 @@ function removeQuestion(btn) {
 
 async function handleCreateExam() {
     const token = localStorage.getItem("token");
-    
+
     const titleInput = document.getElementById("examTitle");
     const durationInput = document.getElementById("examDuration");
-    
+
     const title = titleInput ? titleInput.value.trim() : "";
     const description = document.getElementById("examDescription")?.value.trim() || "";
     const duration = durationInput ? parseInt(durationInput.value) : 0;
@@ -254,13 +257,13 @@ async function handleCreateExam() {
     // Collect questions
     const questions = [];
     const questionItems = document.querySelectorAll(".question-item");
-    
+
     for (let i = 0; i < questionItems.length; i++) {
         const q = questionItems[i];
         const type = q.dataset.type;
         const questionTextInput = q.querySelector(".question-text");
         const marksInput = q.querySelector(".question-marks");
-        
+
         const questionText = questionTextInput ? questionTextInput.value.trim() : "";
         const marks = marksInput ? parseInt(marksInput.value) || 1 : 1;
 
@@ -295,7 +298,7 @@ async function handleCreateExam() {
         } else {
             const expectedAnswerInput = q.querySelector(".expected-answer");
             const expectedAnswer = expectedAnswerInput ? expectedAnswerInput.value.trim() : "";
-            
+
             questions.push({
                 question_text: questionText,
                 type: "short",
@@ -334,33 +337,33 @@ async function handleCreateExam() {
         }
 
         const exam = await response.json();
-        
+
         // Show success modal with exam code and link
         const generatedLink = document.getElementById("generatedLink");
         const examCodeDisplay = document.getElementById("examCodeDisplay");
         const examLinkModal = document.getElementById("examLinkModal");
-        
+
         if (generatedLink && exam.exam_code) {
             const examLink = `${window.location.origin}/exam.html?code=${exam.exam_code}`;
             generatedLink.value = examLink;
         }
-        
+
         if (examCodeDisplay && exam.exam_code) {
             examCodeDisplay.textContent = exam.exam_code;
         }
-        
+
         if (examLinkModal) {
             examLinkModal.style.display = "flex";
         }
-        
+
         // Reset form
         const createExamForm = document.getElementById("createExamForm");
         const questionsContainer = document.getElementById("questionsContainer");
-        
+
         if (createExamForm) createExamForm.reset();
         if (questionsContainer) questionsContainer.innerHTML = "";
         questionCounter = 0;
-        
+
     } catch (error) {
         console.error("Error creating exam:", error);
         alert("Failed to create exam: " + error.message);
@@ -371,22 +374,22 @@ async function handleCreateExam() {
 async function loadMyExams() {
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/my-exams`, {
-            headers: { 
+            headers: {
                 "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             }
         });
 
         if (!response.ok) throw new Error("Failed to load exams");
-        
+
         const exams = await response.json();
         const tbody = document.querySelector("#myExamsTable tbody");
-        
+
         if (tbody) {
             tbody.innerHTML = "";
-            
+
             exams.forEach(exam => {
                 const row = tbody.insertRow();
                 row.innerHTML = `
@@ -404,6 +407,10 @@ async function loadMyExams() {
                     <td>
                         <button onclick="viewExamDetails('${exam.exam_code}')" class="btn btn-view">
                             View
+                        </button>
+                        <button onclick="openMalpracticeModal('${exam.exam_code}')" class="btn btn-secondary"
+                                style="font-size:.8em; padding:4px 10px;">
+                            <i class="fas fa-shield-alt"></i> Log
                         </button>
                         <button onclick="deleteExam('${exam.id}')" class="btn btn-danger">
                             Delete
@@ -426,20 +433,20 @@ function filterExams(filter) {
 
 async function deleteExam(examId) {
     if (!confirm("Are you sure you want to delete this exam? This cannot be undone.")) return;
-    
+
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
             method: "DELETE",
-            headers: { 
+            headers: {
                 "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             }
         });
 
         if (!response.ok) throw new Error("Failed to delete exam");
-        
+
         alert("Exam deleted successfully");
         loadMyExams();
         loadDashboardStats();
@@ -453,9 +460,9 @@ async function deleteExam(examId) {
 async function loadResults() {
     try {
         const token = localStorage.getItem("token");
-        
+
         const response = await fetch(`${API_BASE_URL}/exams/my-submissions`, {
-            headers: { 
+            headers: {
                 "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             }
@@ -468,13 +475,13 @@ async function loadResults() {
             }
             return;
         }
-        
+
         const submissions = await response.json();
         const table = document.querySelector("#resultsTable tbody");
-        
+
         if (table) {
             table.innerHTML = "";
-            
+
             submissions.forEach(sub => {
                 const row = table.insertRow();
                 row.innerHTML = `
@@ -510,13 +517,13 @@ async function copyLink() {
         showToast("Failed to copy link", "error");
         return;
     }
-    
+
     const link = linkInput.value;
     if (!link) {
         showToast("No exam link available", "error");
         return;
     }
-    
+
     try {
         await navigator.clipboard.writeText(link);
         showToast("Exam link copied to clipboard!", "success");
@@ -529,14 +536,14 @@ async function copyLink() {
 async function copyExamCode() {
     const linkInput = document.getElementById("generatedLink");
     const examCodeDisplay = document.getElementById("examCodeDisplay");
-    
+
     let examCode = "";
-    
+
     // Try to get from display element first
     if (examCodeDisplay && examCodeDisplay.textContent) {
         examCode = examCodeDisplay.textContent.trim();
     }
-    
+
     // If not available in display, extract from URL
     if (!examCode && linkInput && linkInput.value) {
         try {
@@ -546,12 +553,12 @@ async function copyExamCode() {
             console.error("Failed to parse URL:", e);
         }
     }
-    
+
     if (!examCode) {
         showToast("No exam code available to copy", "error");
         return;
     }
-    
+
     try {
         await navigator.clipboard.writeText(examCode);
         showToast(`Exam code "${examCode}" copied!`, "success");
@@ -565,7 +572,7 @@ function showToast(message, type = "success") {
     // Remove existing toast
     const existingToast = document.querySelector(".toast-notification");
     if (existingToast) existingToast.remove();
-    
+
     // Create new toast
     const toast = document.createElement("div");
     toast.className = `toast-notification ${type}`;
@@ -573,7 +580,7 @@ function showToast(message, type = "success") {
         <span>${message}</span>
         <button onclick="this.parentElement.remove()" style="background:none; border:none; color:white; cursor:pointer;">×</button>
     `;
-    
+
     // Add styles if not already present
     if (!document.querySelector('#toast-styles')) {
         const style = document.createElement('style');
@@ -615,9 +622,9 @@ function showToast(message, type = "success") {
         `;
         document.head.appendChild(style);
     }
-    
+
     document.body.appendChild(toast);
-    
+
     // Auto remove after 3 seconds
     setTimeout(() => {
         if (toast.parentElement) {
@@ -628,6 +635,235 @@ function showToast(message, type = "success") {
 
 function viewExamDetails(examCode) {
     alert(`Viewing exam: ${examCode}\n\nDetailed view would open here.`);
+}
+
+// ================= MALPRACTICE LOG =================
+
+// Internal cache of last fetched log (used for CSV export)
+let _lastMalpracticeLog = [];
+
+/**
+ * Helper: build an HTML table string from a log events array.
+ */
+function _buildLogTable(events) {
+    if (!events || events.length === 0) {
+        return '<p style="color:#999; padding:10px;">No malpractice events recorded for this exam.</p>';
+    }
+
+    const severityStyle = {
+        high: 'background:#fdecea; color:#c0392b; border-left:4px solid #e74c3c;',
+        medium: 'background:#fef3e2; color:#a04000; border-left:4px solid #e67e22;',
+        low: 'background:#fefde2; color:#7d6608; border-left:4px solid #f1c40f;'
+    };
+    const severityBadge = {
+        high: '<span style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">HIGH</span>',
+        medium: '<span style="background:#e67e22;color:#fff;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">MED</span>',
+        low: '<span style="background:#f1c40f;color:#333;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">LOW</span>'
+    };
+
+    let rows = events.map((e, i) => `
+        <tr style="${severityStyle[e.severity] || ''}">
+            <td>${i + 1}</td>
+            <td><strong>${e.student_name}</strong></td>
+            <td style="font-size:.85em;color:#666;">${e.student_email}</td>
+            <td>${e.event_label}</td>
+            <td>${severityBadge[e.severity] || e.severity}</td>
+            <td>${e.confidence}%</td>
+            <td style="font-size:.85em;white-space:nowrap;">
+                ${new Date(e.timestamp).toLocaleString()}
+            </td>
+        </tr>
+    `).join('');
+
+    return `
+        <table style="width:100%; border-collapse:collapse; font-size:.9em;">
+            <thead>
+                <tr style="background:#2c3e50; color:#fff;">
+                    <th style="padding:8px 12px;">#</th>
+                    <th style="padding:8px 12px;">Student</th>
+                    <th style="padding:8px 12px;">Email</th>
+                    <th style="padding:8px 12px;">Violation Detected</th>
+                    <th style="padding:8px 12px;">Severity</th>
+                    <th style="padding:8px 12px;">Confidence</th>
+                    <th style="padding:8px 12px;">Date &amp; Time</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+/**
+ * Called from the dedicated Malpractice Log page (search by code input).
+ */
+async function fetchMalpracticeLog() {
+    const codeInput = document.getElementById('malpracticeExamCode');
+    const examCode = codeInput ? codeInput.value.trim().toUpperCase() : '';
+
+    if (!examCode) {
+        showToast('Please enter an exam code', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('fetchLogBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…'; }
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/exams/${examCode}/malpractice-log`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Error ${res.status}`);
+        }
+
+        const data = await res.json();
+        _lastMalpracticeLog = data.events || [];
+
+        // --- summary banner ---
+        const summary = document.getElementById('malpracticeSummary');
+        const titleEl = document.getElementById('malpracticeExamTitle');
+        const totalEl = document.getElementById('malpracticeTotalLabel');
+        const badgeHigh = document.getElementById('badgeHigh');
+        const badgeMed = document.getElementById('badgeMedium');
+        const badgeLow = document.getElementById('badgeLow');
+
+        const high = _lastMalpracticeLog.filter(e => e.severity === 'high').length;
+        const medium = _lastMalpracticeLog.filter(e => e.severity === 'medium').length;
+        const low = _lastMalpracticeLog.filter(e => e.severity === 'low').length;
+
+        if (summary) summary.style.display = 'block';
+        if (titleEl) titleEl.textContent = data.exam_title || examCode;
+        if (totalEl) totalEl.textContent = `${data.total_events} event(s) recorded`;
+        if (badgeHigh) badgeHigh.textContent = `HIGH ${high}`;
+        if (badgeMed) badgeMed.textContent = `MED ${medium}`;
+        if (badgeLow) badgeLow.textContent = `LOW ${low}`;
+
+        // --- table ---
+        const tbody = document.getElementById('malpracticeTableBody');
+        if (tbody) {
+            const severityStyle = {
+                high: 'background:#fdecea;',
+                medium: 'background:#fef3e2;',
+                low: 'background:#fefde2;'
+            };
+            const severityBadge = {
+                high: '<span style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">HIGH</span>',
+                medium: '<span style="background:#e67e22;color:#fff;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">MED</span>',
+                low: '<span style="background:#f1c40f;color:#333;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.8em;">LOW</span>'
+            };
+
+            if (_lastMalpracticeLog.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">No malpractice events recorded for this exam. 🎉</td></tr>';
+            } else {
+                tbody.innerHTML = _lastMalpracticeLog.map((e, i) => `
+                    <tr style="${severityStyle[e.severity] || ''}">
+                        <td>${i + 1}</td>
+                        <td><strong>${e.student_name}</strong></td>
+                        <td style="font-size:.85em;color:#666;">${e.student_email}</td>
+                        <td>${e.event_label}</td>
+                        <td>${severityBadge[e.severity] || e.severity}</td>
+                        <td>${e.confidence}%</td>
+                        <td style="font-size:.85em;white-space:nowrap;">${new Date(e.timestamp).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        // Show export button
+        const exportRow = document.getElementById('malpracticeExportRow');
+        if (exportRow) exportRow.style.display = _lastMalpracticeLog.length > 0 ? 'block' : 'none';
+
+        showToast(`Log loaded: ${data.total_events} event(s)`, 'success');
+
+    } catch (err) {
+        console.error('Malpractice log error:', err);
+        showToast('Failed to load log: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> Fetch Log'; }
+    }
+}
+
+/**
+ * Called from the "Log" button in the My Exams table row.
+ * Opens a modal with the log for that specific exam code.
+ */
+async function openMalpracticeModal(examCode) {
+    const modal = document.getElementById('malpracticeModal');
+    const title = document.getElementById('malpracticeModalTitle');
+    const body = document.getElementById('malpracticeModalBody');
+
+    if (!modal) return;
+
+    if (title) title.innerHTML = `<i class="fas fa-shield-alt"></i> Malpractice Log — ${examCode}`;
+    if (body) body.innerHTML = '<p style="padding:20px; color:#999;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+    modal.style.display = 'flex';
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_BASE_URL}/exams/${examCode}/malpractice-log`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Error ${res.status}`);
+        }
+
+        const data = await res.json();
+        const events = data.events || [];
+
+        const high = events.filter(e => e.severity === 'high').length;
+        const medium = events.filter(e => e.severity === 'medium').length;
+        const low = events.filter(e => e.severity === 'low').length;
+
+        const summary = `
+            <div style="margin-bottom:14px; padding:12px 16px; background:#fff3cd;
+                        border-left:4px solid #ffc107; border-radius:6px;">
+                <strong>${data.exam_title}</strong> &mdash;
+                ${data.total_events} event(s) &nbsp;
+                <span style="background:#e74c3c;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;font-weight:700;">HIGH ${high}</span>
+                <span style="background:#e67e22;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;font-weight:700;margin-left:6px;">MED ${medium}</span>
+                <span style="background:#f1c40f;color:#333;padding:2px 8px;border-radius:4px;font-size:.8em;font-weight:700;margin-left:6px;">LOW ${low}</span>
+            </div>
+        `;
+
+        if (body) body.innerHTML = summary + _buildLogTable(events);
+
+    } catch (err) {
+        if (body) body.innerHTML = `<p style="color:#e74c3c; padding:20px;">Error: ${err.message}</p>`;
+    }
+}
+
+/**
+ * Export the currently displayed malpractice log as a CSV file.
+ */
+function exportMalpracticeCSV() {
+    if (!_lastMalpracticeLog || _lastMalpracticeLog.length === 0) {
+        showToast('No data to export', 'error');
+        return;
+    }
+
+    const examCode = document.getElementById('malpracticeExamCode')?.value.trim() || 'exam';
+
+    const header = ['#', 'Student Name', 'Student Email', 'Violation', 'Severity', 'Confidence (%)', 'Timestamp'];
+    const rows = _lastMalpracticeLog.map((e, i) => [
+        i + 1, e.student_name, e.student_email,
+        e.event_label, e.severity.toUpperCase(),
+        e.confidence, new Date(e.timestamp).toLocaleString()
+    ]);
+
+    const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `malpractice-log-${examCode}-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('CSV exported successfully!', 'success');
 }
 
 function toggleSelectAllExams(checkbox) {
@@ -643,7 +879,7 @@ function deleteMultipleExams() {
         alert("Please select exams to delete");
         return;
     }
-    
+
     alert(`Delete ${selectedExams.length} exam(s) functionality would be implemented here.`);
 }
 
@@ -672,3 +908,7 @@ window.deleteExam = deleteExam;
 window.toggleSelectAllExams = toggleSelectAllExams;
 window.deleteMultipleExams = deleteMultipleExams;
 window.logout = logout;
+// Malpractice log
+window.fetchMalpracticeLog = fetchMalpracticeLog;
+window.openMalpracticeModal = openMalpracticeModal;
+window.exportMalpracticeCSV = exportMalpracticeCSV;

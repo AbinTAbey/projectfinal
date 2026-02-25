@@ -7,7 +7,7 @@ import random
 import string
 
 from database.database import get_db
-from database.models import User, Exam, Submission
+from database.models import User, Exam, Submission, CheatingEvent
 from services.auth_service import get_current_user
 from api.routes.auth import oauth2_scheme
 
@@ -496,6 +496,90 @@ async def delete_exam(
     db.commit()
     
     return {"message": "Exam deleted successfully"}
+@router.get("/{exam_code}/malpractice-log")
+async def get_malpractice_log(
+    exam_code: str,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Return all malpractice events captured during an exam.
+    Accessible by the exam's teacher or any admin.
+    """
+    user = get_current_user(token, db)
+
+    if user.role not in ["teacher", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers and admins can view malpractice logs"
+        )
+
+    exam = db.query(Exam).filter(Exam.exam_code == exam_code).first()
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found"
+        )
+
+    # Teachers may only view their own exams (admins can see all)
+    if user.role == "teacher" and exam.teacher_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view logs for your own exams"
+        )
+
+    # Gather all submissions for this exam
+    submissions = db.query(Submission).filter(Submission.exam_id == exam.id).all()
+    submission_ids = [s.id for s in submissions]
+
+    if not submission_ids:
+        return {"exam_code": exam_code, "exam_title": exam.title, "events": []}
+
+    # Build a quick student lookup
+    student_map = {}
+    for sub in submissions:
+        student = db.query(User).filter(User.id == sub.student_id).first()
+        if student:
+            student_map[sub.id] = {"name": student.name, "email": student.email}
+
+    # Fetch all cheating events for these submissions, newest first
+    events = (
+        db.query(CheatingEvent)
+        .filter(CheatingEvent.submission_id.in_(submission_ids))
+        .order_by(CheatingEvent.timestamp.desc())
+        .all()
+    )
+
+    FRIENDLY_NAMES = {
+        "phone_detected": "Mobile Phone Detected",
+        "multiple_faces": "Multiple Faces Detected",
+        "looking_away": "Looking Away from Screen",
+        "voice_detected": "Talking / Voice Detected",
+        "tab_switch": "Tab Switching",
+        "face_not_visible": "Face Not Visible",
+    }
+
+    return {
+        "exam_code": exam_code,
+        "exam_title": exam.title,
+        "total_events": len(events),
+        "events": [
+            {
+                "event_id": e.id,
+                "submission_id": e.submission_id,
+                "student_name": student_map.get(e.submission_id, {}).get("name", "Unknown"),
+                "student_email": student_map.get(e.submission_id, {}).get("email", ""),
+                "event_type": e.event_type,
+                "event_label": FRIENDLY_NAMES.get(e.event_type, e.event_type.replace("_", " ").title()),
+                "severity": e.severity,
+                "confidence": round(e.confidence * 100, 1),
+                "timestamp": e.timestamp.isoformat() + "Z",
+            }
+            for e in events
+        ]
+    }
+
+
 @router.get("/{exam_code}")
 async def get_exam_by_code(
     exam_code: str,
