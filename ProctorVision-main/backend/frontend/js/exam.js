@@ -1,11 +1,20 @@
-console.log("🔥 AI PROCTORING SYSTEM LOADED - PRODUCTION STABLE VERSION");
+console.log("🔥 AI PROCTORING SYSTEM - ULTRA STABLE WITH FIXED ARCHITECTURE");
 
 const MAX_WARNINGS = 3;
 const NO_FACE_TIMEOUT = 5000;
-const LOOK_AWAY_TIMEOUT = 10000;
 const OBJECT_CHECK_INTERVAL = 2000;
 const OBJECT_WARNING_COOLDOWN = 10000;
 const UI_UPDATE_INTERVAL = 1000;
+const FACE_DETECTION_FPS = 6;
+const FACE_DETECTION_INTERVAL = 1000 / FACE_DETECTION_FPS;
+const MODEL_LOAD_TIMEOUT = 10000;
+const SPEECH_RESTART_DELAY = 2000;
+const MAX_POSE_HISTORY = 7;
+const MAX_OBJECT_HISTORY = 3;
+const HEAD_OFFSET_THRESHOLD = 0.03;
+const REQUIRED_AWAY_TIME = 3000;
+const AI_WATCHDOG_INTERVAL = 5000;
+const MEMORY_CLEANUP_INTERVAL = 60000;
 
 const API_BASE_URL = "/api";
 const token = localStorage.getItem("token");
@@ -15,6 +24,11 @@ if (!token || !currentUser || currentUser.role !== "student") {
     window.location.href = "index.html";
 }
 
+// AI Model references
+let faceMesh = null;
+let cocoModel = null;
+
+// Exam state
 let currentExam = null;
 let currentAttempt = null;
 let currentQuestion = 0;
@@ -22,13 +36,9 @@ let answers = {};
 let timeRemaining = 0;
 let examTimer = null;
 let cameraStream = null;
-let audioContext = null;
-let analyser = null;
-let microphone = null;
-let timeDomainArray = null;
-let faceMesh = null;
-let cocoModel = null;
+let videoElement = null;
 
+// Warning state
 let warningCount = 0;
 let warningHistory = [];
 let isExamActive = false;
@@ -42,15 +52,27 @@ let isLookingAtScreen = true;
 let detectedObjects = [];
 let securityBlockersActive = false;
 
-let faceAnimationFrame = null;
-let objectInterval = null;
-let uiInterval = null;
+// Detection loop references - single source of truth
+let faceDetectionFrame = null;
+let objectDetectionInterval = null;
+let uiUpdateInterval = null;
+let watchdogInterval = null;
+let memoryCleanupInterval = null;
 
+// Exam timing
 let startExamTime = null;
 
-// Detection locks
-let isDetectingObject = false;
-let isRestartingSpeech = false;
+// Detection locks - CRITICAL for preventing overlaps
+let isObjectDetectionRunning = false;
+let isFaceProcessing = false;
+let isSpeechRestarting = false;
+let isRestartingModels = false;
+let faceMeshErrorCount = 0;
+const MAX_FACE_MESH_ERRORS = 5;
+let lastFaceMeshReset = 0;
+const FACE_MESH_RESET_INTERVAL = 30000;
+let lastFaceDetectionTime = 0;
+let aiWatchdogTriggered = false;
 
 // Accessibility Mode
 let isAccessibleMode = new URLSearchParams(window.location.search).get("accessible") === "true";
@@ -63,10 +85,6 @@ let hasSpokenFirstQuestion = false;
 // Detection buffers for smoothing
 let poseHistory = [];
 let objectHistory = [];
-const POSE_HISTORY_SIZE = 7;
-const OBJECT_HISTORY_SIZE = 3;
-const HEAD_OFFSET_THRESHOLD = 0.03;
-const REQUIRED_AWAY_TIME = 3000;
 
 // Face mesh landmarks indices
 const LANDMARK_INDICES = {
@@ -75,14 +93,20 @@ const LANDMARK_INDICES = {
     RIGHT_EYE_OUTER: 263
 };
 
+// Performance monitoring
+let lastFrameTime = 0;
+let frameDropCount = 0;
+const MAX_FRAME_DROPS = 10;
+
 document.addEventListener("DOMContentLoaded", async () => {
     console.log("🎓 Initializing AI Proctoring System...");
 
-    // Create accessibility label if in accessible mode
     if (isAccessibleMode) {
         createAccessibilityLabel();
         console.log("🔊 Accessibility Mode Enabled");
     }
+
+    videoElement = document.getElementById("videoElement");
 
     const examCode = new URLSearchParams(window.location.search).get("code");
     if (!examCode) {
@@ -92,11 +116,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
         await checkAttemptStatus(examCode.toUpperCase());
-        await loadAIModels();
+        await initAIModels();
     } catch (error) {
         console.warn("AI models failed to load:", error);
-        document.getElementById("faceStatus").textContent = "⚠️ AI Limited";
-        document.getElementById("faceStatus").style.color = "#ffc107";
+        updateStatusElement("faceStatus", "⚠️ AI Limited", "#ffc107");
     }
 
     await loadExamFromBackend(examCode.toUpperCase());
@@ -107,65 +130,29 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 });
 
-function createAccessibilityLabel() {
-    accessibilityLabel = document.createElement("div");
-    accessibilityLabel.style.cssText = `
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        background: #4361ee;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 20px;
-        font-size: 14px;
-        font-weight: 600;
-        z-index: 9999;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    `;
-    accessibilityLabel.innerHTML = `
-        <i class="fas fa-universal-access"></i>
-        <span>Accessibility Mode Enabled</span>
-    `;
-    document.body.appendChild(accessibilityLabel);
-}
+// ==================== AI MODEL LIFECYCLE MANAGEMENT ====================
 
-async function checkAttemptStatus(examCode) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/exams/${examCode}/attempt-status`, {
-            headers: {
-                "Authorization": `Bearer ${token}`,
-                "Content-Type": "application/json"
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.attempted) {
-                alert("You have already attempted this exam. You cannot retake it.");
-                window.location.href = "student-dashboard.html";
-            }
-        }
-    } catch (error) {
-        console.error("Error checking attempt status:", error);
-    }
-}
-
-async function loadAIModels() {
+async function initAIModels() {
+    console.log("🔄 Initializing AI models...");
     showLoading("Loading AI models...");
 
     try {
-        // Load TensorFlow.js and COCO-SSD
+        // Destroy existing models first to prevent leaks
+        await destroyAIModels();
+
+        // Load TensorFlow.js and COCO-SSD with memory management
         if (typeof tf !== 'undefined' && typeof cocoSsd !== 'undefined') {
+            // Start TensorFlow memory scope
+            tf.engine().startScope();
+            
             cocoModel = await cocoSsd.load();
             console.log("✅ COCO-SSD model loaded");
-        } else {
-            console.warn("TensorFlow.js or COCO-SSD not available");
+            
+            // End scope to clean up temporary tensors
+            tf.engine().endScope();
         }
 
-        // Load FaceMesh model
+        // Load FaceMesh model - FRESH INSTANCE
         if (typeof FaceMesh !== 'undefined') {
             faceMesh = new FaceMesh({
                 locateFile: (file) => {
@@ -182,8 +169,6 @@ async function loadAIModels() {
 
             faceMesh.onResults(handleFaceMeshResults);
             console.log("✅ FaceMesh model loaded");
-        } else {
-            console.warn("FaceMesh not available");
         }
 
     } catch (error) {
@@ -194,39 +179,323 @@ async function loadAIModels() {
     }
 }
 
+async function destroyAIModels() {
+    console.log("🔄 Destroying AI models...");
+
+    // Destroy FaceMesh - COMPLETE DESTRUCTION, NOT REUSE
+    if (faceMesh) {
+        try {
+            faceMesh.close();
+            faceMesh = null;
+            console.log("✅ FaceMesh destroyed");
+        } catch (error) {
+            console.error("Error destroying FaceMesh:", error);
+            faceMesh = null;
+        }
+    }
+
+    // Destroy COCO-SSD and cleanup TensorFlow memory
+    if (cocoModel) {
+        try {
+            // Clear any cached tensors
+            if (tf && tf.engine) {
+                tf.engine().startScope();
+                // Force garbage collection hint
+                if (tf.memory) {
+                    const memory = tf.memory();
+                    console.log("TensorFlow memory before cleanup:", memory);
+                }
+                tf.engine().endScope();
+                tf.engine().disposeVariables();
+            }
+            cocoModel = null;
+            console.log("✅ COCO-SSD destroyed");
+        } catch (error) {
+            console.error("Error destroying COCO-SSD:", error);
+            cocoModel = null;
+        }
+    }
+
+    // Clear detection buffers
+    poseHistory = [];
+    objectHistory = [];
+    
+    // Reset error counters
+    faceMeshErrorCount = 0;
+    lastFaceMeshReset = 0;
+}
+
+async function resetFaceMesh() {
+    console.log("🔄 Resetting FaceMesh with fresh instance...");
+    
+    // COMPLETE DESTRUCTION - DO NOT REUSE CLOSED INSTANCE
+    if (faceMesh) {
+        try {
+            faceMesh.close();
+        } catch (e) {
+            console.warn("Error closing FaceMesh:", e);
+        }
+        faceMesh = null;
+    }
+
+    // Create FRESH instance
+    try {
+        faceMesh = new FaceMesh({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces: 2,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(handleFaceMeshResults);
+        console.log("✅ FaceMesh fresh instance created");
+        faceMeshErrorCount = 0;
+    } catch (error) {
+        console.error("Failed to create fresh FaceMesh instance:", error);
+        faceMesh = null;
+    }
+}
+
+async function restartAIModels() {
+    // Prevent multiple simultaneous restarts
+    if (isRestartingModels) {
+        console.log("⚠️ Model restart already in progress, skipping...");
+        return;
+    }
+    
+    isRestartingModels = true;
+    console.log("🔄 Restarting AI models due to watchdog...");
+    
+    // Stop proctoring completely
+    const wasProctoringActive = isProctoringActive;
+    if (wasProctoringActive) {
+        stopProctoring();
+    }
+    
+    // Small delay to ensure everything is stopped
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Reinitialize models - this will create fresh instances
+    await initAIModels();
+    
+    // Small delay for models to stabilize
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Restart proctoring if it was active
+    if (wasProctoringActive && isExamActive) {
+        startProctoring();
+    }
+    
+    aiWatchdogTriggered = false;
+    isRestartingModels = false;
+    console.log("✅ AI models restarted successfully");
+}
+
+// ==================== CAMERA LIFECYCLE MANAGEMENT ====================
+
+async function resetCamera() {
+    console.log("🔄 Resetting camera...");
+    
+    // Stop all tracks
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => {
+            track.stop();
+            track.enabled = false;
+        });
+        cameraStream = null;
+    }
+    
+    // COMPLETE video element reset
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.srcObject = null;
+        videoElement.load();
+        videoElement.onloadedmetadata = null;
+    }
+    
+    console.log("✅ Camera reset complete");
+}
+
+async function requestCameraAndMic() {
+    try {
+        showLoading("Requesting camera and microphone access...");
+        
+        // Reset camera first
+        await resetCamera();
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                facingMode: 'user',
+                frameRate: { ideal: 15 }
+            },
+            audio: false
+        });
+
+        cameraStream = stream;
+
+        if (videoElement) {
+            videoElement.srcObject = stream;
+            await new Promise((resolve) => {
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play()
+                        .then(resolve)
+                        .catch(e => {
+                            console.error("Video play failed:", e);
+                            resolve();
+                        });
+                };
+            });
+        }
+
+        console.log("✅ Camera enabled (640x480 @ 15fps)");
+        return true;
+
+    } catch (err) {
+        console.error("Camera permission denied:", err);
+        alert("❌ Camera permission is REQUIRED for this proctored exam.\n\nPlease enable camera access, then refresh the page.");
+        return false;
+    } finally {
+        hideLoading();
+    }
+}
+
+// ==================== WATCHDOG SYSTEM ====================
+
+function startWatchdog() {
+    if (watchdogInterval) {
+        clearInterval(watchdogInterval);
+        watchdogInterval = null;
+    }
+    
+    watchdogInterval = setInterval(() => {
+        if (!isExamActive || !isProctoringActive || isRestartingModels) return;
+        
+        const now = Date.now();
+        
+        // Check if face detection has stopped - ONLY trigger if proctoring active and models exist
+        if (faceMesh && now - lastFaceDetectionTime > 5000 && !aiWatchdogTriggered) {
+            console.warn("⚠️ AI Watchdog: Face detection stalled for 5 seconds");
+            aiWatchdogTriggered = true;
+            restartAIModels();
+        }
+        
+        // Check for high memory usage
+        if (tf && tf.memory) {
+            const memory = tf.memory();
+            if (memory.numTensors > 100) {
+                console.warn("⚠️ High tensor count detected:", memory.numTensors);
+                tf.engine().startScope();
+                tf.engine().endScope();
+            }
+        }
+    }, AI_WATCHDOG_INTERVAL);
+}
+
+function startMemoryCleanup() {
+    if (memoryCleanupInterval) {
+        clearInterval(memoryCleanupInterval);
+        memoryCleanupInterval = null;
+    }
+    
+    memoryCleanupInterval = setInterval(() => {
+        if (!isExamActive || isRestartingModels) return;
+        
+        // Periodic TensorFlow memory cleanup
+        if (tf && tf.engine) {
+            tf.engine().startScope();
+            tf.engine().endScope();
+            
+            if (tf.memory) {
+                const memory = tf.memory();
+                console.log("📊 Memory stats:", {
+                    tensors: memory.numTensors,
+                    bytes: memory.numBytes
+                });
+            }
+        }
+    }, MEMORY_CLEANUP_INTERVAL);
+}
+
+// ==================== SPEECH RECOGNITION LIFECYCLE ====================
+
+function destroySpeechRecognition() {
+    if (speechRecognition) {
+        try {
+            if (isListening) {
+                speechRecognition.stop();
+            }
+            speechRecognition.abort();
+            speechRecognition = null;
+            console.log("✅ Speech recognition destroyed");
+        } catch (error) {
+            console.error("Error destroying speech recognition:", error);
+            speechRecognition = null;
+        }
+    }
+    
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    
+    isListening = false;
+    isSpeechRestarting = false;
+}
+
+// ==================== SECURITY BLOCKERS ====================
+
 function setupSecurityBlockers() {
     if (securityBlockersActive) return;
 
-    document.addEventListener('keydown', handleKeyDown, true);
-    document.addEventListener('contextmenu', handleContextMenu, true);
-    document.addEventListener('copy', handleCopyPaste, true);
-    document.addEventListener('paste', handleCopyPaste, true);
-    document.addEventListener('cut', handleCopyPaste, true);
-    document.addEventListener('dragstart', preventDefault, true);
-    document.addEventListener('drop', preventDefault, true);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const handlers = [
+        ['keydown', handleKeyDown, true],
+        ['contextmenu', handleContextMenu, true],
+        ['copy', handleCopyPaste, true],
+        ['paste', handleCopyPaste, true],
+        ['cut', handleCopyPaste, true],
+        ['dragstart', preventDefault, true],
+        ['drop', preventDefault, true],
+        ['fullscreenchange', handleFullscreenChange],
+        ['webkitfullscreenchange', handleFullscreenChange],
+        ['mozfullscreenchange', handleFullscreenChange],
+        ['MSFullscreenChange', handleFullscreenChange],
+        ['visibilitychange', handleVisibilityChange]
+    ];
+
+    handlers.forEach(([event, handler, capture]) => {
+        document.addEventListener(event, handler, capture || false);
+    });
 
     securityBlockersActive = true;
     console.log("✅ Security blockers activated");
 }
 
 function removeSecurityBlockers() {
-    document.removeEventListener('keydown', handleKeyDown, true);
-    document.removeEventListener('contextmenu', handleContextMenu, true);
-    document.removeEventListener('copy', handleCopyPaste, true);
-    document.removeEventListener('paste', handleCopyPaste, true);
-    document.removeEventListener('cut', handleCopyPaste, true);
-    document.removeEventListener('dragstart', preventDefault, true);
-    document.removeEventListener('drop', preventDefault, true);
-    document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    const handlers = [
+        ['keydown', handleKeyDown, true],
+        ['contextmenu', handleContextMenu, true],
+        ['copy', handleCopyPaste, true],
+        ['paste', handleCopyPaste, true],
+        ['cut', handleCopyPaste, true],
+        ['dragstart', preventDefault, true],
+        ['drop', preventDefault, true],
+        ['fullscreenchange', handleFullscreenChange],
+        ['webkitfullscreenchange', handleFullscreenChange],
+        ['mozfullscreenchange', handleFullscreenChange],
+        ['MSFullscreenChange', handleFullscreenChange],
+        ['visibilitychange', handleVisibilityChange]
+    ];
+
+    handlers.forEach(([event, handler, capture]) => {
+        document.removeEventListener(event, handler, capture || false);
+    });
 
     securityBlockersActive = false;
 }
@@ -237,52 +506,24 @@ function handleKeyDown(e) {
     const key = e.key || String.fromCharCode(e.keyCode);
     const keyCode = e.keyCode;
 
-    if (key === 'Escape' || keyCode === 27) {
-        e.preventDefault();
-        addWarning("Escape key blocked - cannot exit fullscreen");
-        forceFullscreen();
-        return false;
-    }
+    const blockedKeys = [
+        { condition: key === 'Escape' || keyCode === 27, message: "Escape key blocked" },
+        { condition: key === 'F11' || keyCode === 122, message: "F11 blocked" },
+        { condition: keyCode === 123 && !isAccessibleMode, message: "F12 blocked" },
+        { condition: e.ctrlKey && e.shiftKey && (keyCode === 73 || keyCode === 74) && !isAccessibleMode, message: "Developer tools blocked" },
+        { condition: e.ctrlKey && (keyCode === 85 || keyCode === 83 || keyCode === 80), message: `Ctrl+${key} blocked` },
+        { condition: e.ctrlKey && (key === 'c' || key === 'v' || key === 'x'), message: "Copy/paste blocked" }
+    ];
 
-    if (key === 'F11' || keyCode === 122) {
-        e.preventDefault();
-        addWarning("F11 blocked - cannot exit fullscreen");
-        forceFullscreen();
-        return false;
-    }
-
-    if (keyCode === 123) {
-        // Allow F12 in accessibility mode for debugging
-        if (isAccessibleMode) {
-            console.log("F12 allowed in accessibility mode");
-            return true;
+    for (const { condition, message } of blockedKeys) {
+        if (condition) {
+            e.preventDefault();
+            addWarning(message);
+            if (message.includes('Escape') || message.includes('F11')) {
+                forceFullscreen();
+            }
+            return false;
         }
-        e.preventDefault();
-        addWarning("F12 blocked - developer tools disabled");
-        return false;
-    }
-
-    if (e.ctrlKey && e.shiftKey && (keyCode === 73 || keyCode === 74)) {
-        // Allow Ctrl+Shift+I/J in accessibility mode for debugging
-        if (isAccessibleMode) {
-            console.log("Developer tools allowed in accessibility mode");
-            return true;
-        }
-        e.preventDefault();
-        addWarning("Developer tools blocked");
-        return false;
-    }
-
-    if (e.ctrlKey && (keyCode === 85 || keyCode === 83 || keyCode === 80)) {
-        e.preventDefault();
-        addWarning(`Ctrl+${key} blocked`);
-        return false;
-    }
-
-    if (e.ctrlKey && (key === 'c' || key === 'v' || key === 'x')) {
-        e.preventDefault();
-        addWarning(`Copy/paste blocked`);
-        return false;
     }
 
     return true;
@@ -336,551 +577,254 @@ function preventDefault(e) {
 
 function forceFullscreen() {
     const elem = document.documentElement;
+    const methods = [
+        'requestFullscreen',
+        'mozRequestFullScreen',
+        'webkitRequestFullscreen',
+        'msRequestFullscreen'
+    ];
 
-    try {
-        if (elem.requestFullscreen) {
-            elem.requestFullscreen();
-        } else if (elem.mozRequestFullScreen) {
-            elem.mozRequestFullScreen();
-        } else if (elem.webkitRequestFullscreen) {
-            elem.webkitRequestFullscreen();
-        } else if (elem.msRequestFullscreen) {
-            elem.msRequestFullscreen();
-        }
-
-        console.log("✅ Fullscreen enforced");
-    } catch (e) {
-        console.warn("Fullscreen denied:", e);
-        addWarning("Fullscreen mode could not be enabled");
-    }
-}
-
-async function requestCameraAndMic() {
-    try {
-        showLoading("Requesting camera and microphone access...");
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-                facingMode: 'user'
-            },
-            audio: false
-        });
-
-        cameraStream = stream;
-
-        const video = document.getElementById("videoElement");
-        if (video) {
-            video.srcObject = stream;
-            await video.play();
-        }
-
-        console.log("✅ Camera enabled (640x480)");
-        return true;
-
-    } catch (err) {
-        console.error("Camera permission denied:", err);
-        alert("❌ Camera permission is REQUIRED for this proctored exam.\n\nPlease enable camera access, then refresh the page.");
-        return false;
-    } finally {
-        hideLoading();
-    }
-}
-
-// Text-to-Speech Functionality
-function speakText(text) {
-    console.log("🔊 speakText called with:", text);
-
-    if (!isAccessibleMode || !window.speechSynthesis) {
-        console.log("⚠️ TTS not available. isAccessibleMode:", isAccessibleMode, "speechSynthesis:", !!window.speechSynthesis);
-        return;
-    }
-
-    try {
-        // Cancel any ongoing speech
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        utterance.lang = 'en-US';
-
-        // Set a voice if available
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-            const femaleVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Google UK English Female'));
-            if (femaleVoice) {
-                utterance.voice = femaleVoice;
-            }
-        }
-
-        console.log("🔊 Speaking now:", text.substring(0, 50) + "...");
-        window.speechSynthesis.speak(utterance);
-        currentSpeech = utterance;
-    } catch (error) {
-        console.error("Text-to-speech error:", error);
-    }
-}
-
-// Speech-to-Text Functionality
-function setupSpeechRecognition() {
-    if (!isAccessibleMode) return;
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        console.warn("Speech recognition not supported in this browser");
-        if (isExamActive) {
-            speakText("Speech recognition not supported in this browser. Please use Chrome for accessibility features.");
-        }
-        return;
-    }
-
-    try {
-        speechRecognition = new SpeechRecognition();
-        speechRecognition.continuous = true;
-        speechRecognition.interimResults = true; // Changed to true for better responsiveness
-        speechRecognition.lang = 'en-US';
-        speechRecognition.maxAlternatives = 1;
-
-        speechRecognition.onresult = (event) => {
+    for (const method of methods) {
+        if (elem[method]) {
             try {
-                const result = event.results[event.results.length - 1];
-                // Only process final results, not interim ones
-                if (!result.isFinal) return;
-
-                const transcript = result[0].transcript.toLowerCase().trim();
-                console.log("Voice command:", transcript);
-                handleVoiceCommand(transcript);
-            } catch (error) {
-                console.error("Error processing speech result:", error);
+                elem[method]();
+                console.log("✅ Fullscreen enforced");
+                return;
+            } catch (e) {
+                console.warn(`Fullscreen ${method} failed:`, e);
             }
-        };
-
-        speechRecognition.onerror = (event) => {
-            console.error("Speech recognition error:", event.error);
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                console.warn("Microphone access denied for speech recognition");
-                isListening = false;
-            }
-        };
-
-        speechRecognition.onend = () => {
-            console.log("Speech recognition ended");
-            // Safe restart with delay to prevent rapid cycling
-            if (isExamActive && isAccessibleMode && isListening && !isRestartingSpeech) {
-                isRestartingSpeech = true;
-                setTimeout(() => {
-                    try {
-                        if (isExamActive && isAccessibleMode && isListening && speechRecognition) {
-                            speechRecognition.start();
-                            console.log("Speech recognition restarted");
-                        }
-                    } catch (e) {
-                        console.error("Failed to restart speech recognition:", e);
-                        isListening = false;
-                    } finally {
-                        isRestartingSpeech = false;
-                    }
-                }, 1000);
-            }
-        };
-
-        // Start listening if in accessible mode and exam active
-        if (isExamActive) {
-            startListening();
         }
-    } catch (error) {
-        console.error("Failed to setup speech recognition:", error);
     }
+    
+    addWarning("Fullscreen mode could not be enabled");
 }
 
-function startListening() {
-    if (!isAccessibleMode || !speechRecognition || isListening) return;
-
-    try {
-        speechRecognition.start();
-        isListening = true;
-        console.log("🎤 Speech recognition started");
-    } catch (error) {
-        console.error("Failed to start speech recognition:", error);
-        isListening = false;
-    }
-}
-
-function stopListening() {
-    if (!speechRecognition || !isListening) return;
-
-    try {
-        speechRecognition.stop();
-        isListening = false;
-        console.log("🎤 Speech recognition stopped");
-    } catch (error) {
-        console.error("Failed to stop speech recognition:", error);
-    }
-}
-
-function handleVoiceCommand(command) {
-    if (!isExamActive) return;
-
-    console.log("Processing voice command:", command);
-
-    // Navigation commands
-    if (command.includes('next') || command.includes('nest') || command.includes('move forward') || command.includes('forward')) {
-        if (currentQuestion < currentExam.questions.length - 1) {
-            window.nextQuestion();
-            speakText("Moving to next question.");
-        } else {
-            speakText("This is the last question.");
-        }
-        return;
-    }
-
-    if (command.includes('previous') || command.includes('move back') || command.includes('back') || command.includes('go back')) {
-        if (currentQuestion > 0) {
-            window.prevQuestion();
-            speakText("Moving to previous question.");
-        } else {
-            speakText("This is the first question.");
-        }
-        return;
-    }
-
-    if (command.includes('repeat') || command.includes('say again') || command.includes('again')) {
-        console.log("🔄 Repeat command detected, speaking current question");
-        speakCurrentQuestion();
-        return;
-    }
-
-    // Submit exam command
-    if (command.includes('submit') || command.includes('finish exam') || command.includes('end exam')) {
-        console.log("📤 Submit command detected");
-        speakText("Are you sure you want to submit the exam? Say 'yes confirm' to submit or 'cancel' to continue.");
-
-        // Set up temporary listener for confirmation
-        const originalHandler = speechRecognition.onresult;
-        let confirmationTimeout;
-
-        speechRecognition.onresult = (event) => {
-            const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-            console.log("Confirmation response:", transcript);
-
-            if (transcript.includes('yes') || transcript.includes('confirm')) {
-                speakText("Submitting your exam now.");
-                setTimeout(() => {
-                    window.submitExam();
-                }, 1000);
-            } else {
-                speakText("Submission cancelled. Continuing with exam.");
-            }
-
-            // Restore original handler
-            speechRecognition.onresult = originalHandler;
-            clearTimeout(confirmationTimeout);
-        };
-
-        // Auto-cancel after 10 seconds if no response
-        confirmationTimeout = setTimeout(() => {
-            speechRecognition.onresult = originalHandler;
-            speakText("No response received. Continuing with exam.");
-        }, 10000);
-
-        return;
-    }
-
-    // Option selection commands
-    const currentQ = currentExam.questions[currentQuestion];
-    console.log("🎯 Checking option selection. Question type:", currentQ?.type);
-
-    if (currentQ.type === "mcq") {
-        // Check for number commands
-        console.log("🎯 MCQ detected, checking command:", command);
-
-        if (command.includes('1') || command.includes('one') || command.includes('option 1') || command.includes('first')) {
-            console.log("🎯 Selecting option 1");
-            selectOption(0);
-            return;
-        }
-        if (command.includes('2') || command.includes('two') || command.includes('option 2') || command.includes('second')) {
-            console.log("🎯 Selecting option 2");
-            selectOption(1);
-            return;
-        }
-        if (command.includes('3') || command.includes('three') || command.includes('option 3') || command.includes('third')) {
-            console.log("🎯 Selecting option 3");
-            selectOption(2);
-            return;
-        }
-        if (command.includes('4') || command.includes('four') || command.includes('for') || command.includes('option 4') || command.includes('fourth')) {
-            console.log("🎯 Selecting option 4");
-            selectOption(3);
-            return;
-        }
-
-        console.log("⚠️ No matching option command found");
-    }
-}
-
-function selectOption(optionIndex) {
-    console.log("📝 selectOption called! Index:", optionIndex, "Current question:", currentQuestion);
-
-    const currentQ = currentExam.questions[currentQuestion];
-    if (currentQ.type === "mcq" && optionIndex < currentQ.options.length) {
-        console.log("📝 Saving answer...");
-        answers[currentQuestion] = optionIndex;
-
-        // Reload the question to show the selected option visually (but don't speak)
-        loadQuestion(currentQuestion, false);
-
-        updateQuestionGrid();
-
-        // Speak confirmation after a short delay to ensure it's not canceled
-        setTimeout(() => {
-            console.log("🔊 About to speak confirmation for option:", optionIndex + 1);
-            speakText(`Selected option ${optionIndex + 1}. ${currentQ.options[optionIndex]}`);
-            console.log("🔊 speakText called for confirmation");
-        }, 300);
-
-        // Auto-advance to next question after a short delay
-        if (currentQuestion < currentExam.questions.length - 1) {
-            setTimeout(() => {
-                window.nextQuestion();
-            }, 2500); // Increased from 1500 to allow confirmation to finish
-        } else {
-            // For last question, delay the message so confirmation plays first
-            setTimeout(() => {
-                speakText("This was the last question. You can submit the exam when ready.");
-            }, 2500); // Increased delay to let confirmation finish
-        }
-    } else {
-        console.error("❌ selectOption failed! Type:", currentQ?.type, "optionIndex:", optionIndex, "length:", currentQ?.options?.length);
-    }
-}
-
-function speakCurrentQuestion() {
-    if (!isAccessibleMode || !currentExam) return;
-
-    try {
-        const question = currentExam.questions[currentQuestion];
-        let speechText = `Question ${currentQuestion + 1}. ${question.question_text}. `;
-
-        if (question.type === "mcq" && question.options) {
-            speechText += `Options: `;
-            question.options.forEach((option, index) => {
-                speechText += `Option ${index + 1}. ${option}. `;
-            });
-        } else if (question.type === "short") {
-            speechText += `This is a short answer question. Please speak your answer clearly.`;
-        }
-
-        speakText(speechText);
-    } catch (error) {
-        console.error("Error speaking question:", error);
-    }
-}
+// ==================== PROCTORING LIFECYCLE ====================
 
 function startProctoring() {
     if (isProctoringActive) return;
 
+    // CRITICAL: Stop any existing proctoring to prevent duplicate loops
     stopProctoring();
 
     isProctoringActive = true;
     startExamTime = Date.now();
+    lastFaceDetectionTime = Date.now();
     console.log("🚀 Starting AI proctoring...");
 
     // Initialize speech recognition if in accessible mode
     if (isAccessibleMode) {
+        destroySpeechRecognition();
         setupSpeechRecognition();
-        // Speak exam start message
         setTimeout(() => {
-            speakText(`Exam started with Accessibility Mode enabled. Looking away detection is disabled. There are ${currentExam.questions.length} questions. ${currentExam.questions.length > 1 ? 'Say "next" to move to the next question, "previous" to go back, or "repeat" to hear the current question again.' : ''}`);
+            speakText(`Exam started with Accessibility Mode enabled. There are ${currentExam.questions.length} questions.`);
         }, 1000);
     }
 
-    // Start face detection with requestAnimationFrame throttled to 6 FPS
+    // Start face detection with throttled requestAnimationFrame and LOCK PROTECTION
     if (faceMesh) {
         let lastFaceTime = 0;
-        const FACE_FPS = 6;
 
-        function faceLoop(timestamp) {
-            if (!isExamActive || !faceMesh) {
-                if (faceAnimationFrame) {
-                    cancelAnimationFrame(faceAnimationFrame);
-                    faceAnimationFrame = null;
+        async function faceDetectionLoop(timestamp) {
+            if (!isExamActive || !isProctoringActive || !faceMesh || isRestartingModels) {
+                if (faceDetectionFrame) {
+                    cancelAnimationFrame(faceDetectionFrame);
+                    faceDetectionFrame = null;
                 }
                 return;
             }
 
-            if (timestamp - lastFaceTime >= 1000 / FACE_FPS) {
-                const video = document.getElementById("videoElement");
-                if (video && video.readyState >= 2) {
+            // CRITICAL: Check timestamp throttling AND processing lock
+            if (!isFaceProcessing && timestamp - lastFaceTime >= FACE_DETECTION_INTERVAL) {
+                // ACQUIRE LOCK - prevents overlapping send() calls
+                isFaceProcessing = true;
+                
+                if (videoElement && videoElement.readyState >= 2 && !videoElement.paused) {
                     try {
-                        faceMesh.send({ image: video });
+                        await faceMesh.send({ image: videoElement });
+                        lastFaceTime = timestamp;
+                        lastFaceDetectionTime = Date.now();
                     } catch (error) {
-                        console.error("FaceMesh error:", error);
+                        console.error("FaceMesh send error:", error);
+                        faceMeshErrorCount++;
+                        
+                        if (faceMeshErrorCount >= MAX_FACE_MESH_ERRORS && !isRestartingModels) {
+                            const now = Date.now();
+                            if (now - lastFaceMeshReset > FACE_MESH_RESET_INTERVAL) {
+                                // Reset with fresh instance
+                                await resetFaceMesh();
+                                lastFaceMeshReset = now;
+                            }
+                        }
+                    } finally {
+                        // RELEASE LOCK - critical
+                        isFaceProcessing = false;
                     }
+                } else {
+                    // RELEASE LOCK if video not ready
+                    isFaceProcessing = false;
                 }
-                lastFaceTime = timestamp;
             }
 
-            faceAnimationFrame = requestAnimationFrame(faceLoop);
+            faceDetectionFrame = requestAnimationFrame(faceDetectionLoop);
         }
 
-        faceAnimationFrame = requestAnimationFrame(faceLoop);
+        faceDetectionFrame = requestAnimationFrame(faceDetectionLoop);
     }
 
-    // Object detection every 2 seconds using COCO-SSD with detection lock
+    // Start object detection with interval and LOCK PROTECTION
     if (cocoModel) {
-        objectInterval = setInterval(async () => {
-            // Prevent overlapping detection calls
-            if (isDetectingObject) {
-                console.log("Object detection already in progress, skipping...");
+        objectDetectionInterval = setInterval(async () => {
+            // CRITICAL: Check exam active, proctoring active, not restarting, and not already running
+            if (!isExamActive || !isProctoringActive || isObjectDetectionRunning || isRestartingModels) {
                 return;
             }
 
-            if (!cocoModel || !isExamActive) return;
-
-            isDetectingObject = true;
+            // ACQUIRE LOCK
+            isObjectDetectionRunning = true;
 
             try {
-                const video = document.getElementById("videoElement");
-                if (!video || video.readyState < 2) {
-                    isDetectingObject = false;
+                if (!videoElement || videoElement.readyState < 2 || videoElement.paused) {
                     return;
                 }
 
-                // Run COCO-SSD detection
-                const predictions = await cocoModel.detect(video);
+                let predictions;
 
-                // Optional debug logging (5% of cycles)
-                if (Math.random() < 0.05) {
-                    console.log("Object detection predictions:",
-                        predictions.map(p => ({
-                            class: p.class,
-                            score: p.score.toFixed(2)
-                        }))
-                    );
+                // CRITICAL: TensorFlow memory scope - ALWAYS enclosed in try/finally
+                tf.engine().startScope();
+
+                try {
+                    predictions = await cocoModel.detect(videoElement);
+                } finally {
+                    // ENSURE scope ends even if detection throws error
+                    tf.engine().endScope();
                 }
 
                 if (predictions && predictions.length > 0) {
-                    const suspicious = [];
-
-                    for (const prediction of predictions) {
-                        const label = prediction.class.toLowerCase();
-                        const score = prediction.score;
-
-                        // Check for suspicious objects with threshold 0.35
-                        if (score > 0.35 && (
+                    const suspicious = predictions.filter(p => {
+                        const label = p.class.toLowerCase();
+                        const score = p.score;
+                        return score > 0.35 && (
                             label.includes('cell phone') ||
-                            label.includes('mobile phone') ||
+                            label.includes('mobile') ||
                             label.includes('phone') ||
                             label.includes('book') ||
                             label.includes('laptop')
-                        )) {
-                            suspicious.push({
-                                class: prediction.class,
-                                score: prediction.score,
-                                bbox: prediction.bbox
-                            });
-                        }
-                    }
+                        );
+                    }).map(p => ({
+                        class: p.class,
+                        score: p.score,
+                        bbox: p.bbox
+                    }));
 
-                    // Add to object history buffer for smoothing (size 3)
                     objectHistory.push(suspicious.length > 0);
-                    if (objectHistory.length > OBJECT_HISTORY_SIZE) {
+                    if (objectHistory.length > MAX_OBJECT_HISTORY) {
                         objectHistory.shift();
                     }
 
-                    // Smoothing: Confirm if at least 2 out of last 3 cycles detected objects
-                    let confirmedDetection = false;
-                    if (objectHistory.length >= 2) {
-                        const trueCount = objectHistory.filter(v => v === true).length;
-                        confirmedDetection = trueCount >= 2;
-                    }
+                    const confirmedDetection = objectHistory.length >= 2 && 
+                        objectHistory.filter(v => v).length >= 2;
 
                     if (confirmedDetection && suspicious.length > 0) {
                         const now = Date.now();
                         if (now - lastObjectWarningTime >= OBJECT_WARNING_COOLDOWN) {
-                            const objectNames = [...new Set(suspicious.map(p => p.class))].join(', ');
-                            addWarning(`Suspicious object detected`);
+                            addWarning('Suspicious object detected');
                             lastObjectWarningTime = now;
                         }
                         detectedObjects = suspicious;
                     } else {
                         detectedObjects = [];
                     }
-
-                    updateObjectDetectionStatus();
                 } else {
                     objectHistory.push(false);
-                    if (objectHistory.length > OBJECT_HISTORY_SIZE) {
+                    if (objectHistory.length > MAX_OBJECT_HISTORY) {
                         objectHistory.shift();
                     }
                     detectedObjects = [];
-                    updateObjectDetectionStatus();
                 }
+
             } catch (error) {
                 console.error("Object detection error:", error);
                 objectHistory.push(false);
-                if (objectHistory.length > OBJECT_HISTORY_SIZE) {
-                    objectHistory.shift();
-                }
                 detectedObjects = [];
-                updateObjectDetectionStatus();
+                // Ensure scope is cleaned up - though finally should handle it
+                try { tf.engine().endScope(); } catch (e) {}
             } finally {
-                isDetectingObject = false;
+                // RELEASE LOCK
+                isObjectDetectionRunning = false;
+                updateObjectDetectionStatus();
             }
         }, OBJECT_CHECK_INTERVAL);
     }
 
-    // UI updates every second
-    if (!uiInterval) {
-        uiInterval = setInterval(() => {
-            if (!isExamActive) return;
+    // Start UI update interval
+    uiUpdateInterval = setInterval(() => {
+        if (!isExamActive || !isProctoringActive || isRestartingModels) return;
 
-            checkFaceTimeout();
-            checkLookingAwayTimeout();
+        checkFaceTimeout();
+        checkLookingAwayTimeout();
+        updateFaceStatus();
+        updateHeadPoseStatus();
+        updateObjectDetectionStatus();
+    }, UI_UPDATE_INTERVAL);
 
-            updateFaceStatus();
-            updateHeadPoseStatus();
-            updateObjectDetectionStatus();
-        }, UI_UPDATE_INTERVAL);
-    }
+    // Start watchdog and memory cleanup
+    startWatchdog();
+    startMemoryCleanup();
 }
 
 function stopProctoring() {
+    console.log("🔄 Stopping proctoring...");
+    
     isProctoringActive = false;
 
-    if (faceAnimationFrame) {
-        cancelAnimationFrame(faceAnimationFrame);
-        faceAnimationFrame = null;
+    // Cancel animation frame
+    if (faceDetectionFrame) {
+        cancelAnimationFrame(faceDetectionFrame);
+        faceDetectionFrame = null;
     }
 
-    if (objectInterval) {
-        clearInterval(objectInterval);
-        objectInterval = null;
+    // Clear intervals
+    if (objectDetectionInterval) {
+        clearInterval(objectDetectionInterval);
+        objectDetectionInterval = null;
     }
 
-    if (uiInterval) {
-        clearInterval(uiInterval);
-        uiInterval = null;
+    if (uiUpdateInterval) {
+        clearInterval(uiUpdateInterval);
+        uiUpdateInterval = null;
     }
 
-    // Stop speech recognition and synthesis
-    stopListening();
-    if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
+    if (watchdogInterval) {
+        clearInterval(watchdogInterval);
+        watchdogInterval = null;
     }
-    isDetectingObject = false;
-    isRestartingSpeech = false;
+
+    if (memoryCleanupInterval) {
+        clearInterval(memoryCleanupInterval);
+        memoryCleanupInterval = null;
+    }
+
+    // Destroy speech recognition
+    destroySpeechRecognition();
+
+    // Reset detection locks and state
+    isObjectDetectionRunning = false;
+    isFaceProcessing = false;
+    isSpeechRestarting = false;
     poseHistory = [];
     objectHistory = [];
+    faceMeshErrorCount = 0;
+    aiWatchdogTriggered = false;
 
     console.log("✅ Proctoring stopped");
 }
 
+// ==================== FACE MESH RESULTS HANDLER ====================
+
 function handleFaceMeshResults(results) {
+    if (!isProctoringActive || !isExamActive || isRestartingModels) return;
+
     if (!results || !results.multiFaceLandmarks) {
         faceDetected = false;
         multipleFaces = false;
@@ -901,39 +845,23 @@ function handleFaceMeshResults(results) {
         const faceLandmarks = results.multiFaceLandmarks[0];
 
         try {
-            // Extract key landmarks
             const noseTip = faceLandmarks[LANDMARK_INDICES.NOSE_TIP];
             const leftEye = faceLandmarks[LANDMARK_INDICES.LEFT_EYE_OUTER];
             const rightEye = faceLandmarks[LANDMARK_INDICES.RIGHT_EYE_OUTER];
 
             if (noseTip && leftEye && rightEye) {
-                // Calculate eye center position
                 const eyeCenterX = (leftEye.x + rightEye.x) / 2;
-
-                // Calculate head offset (nose position relative to eye center)
                 const headOffset = noseTip.x - eyeCenterX;
 
-                // Add to pose history buffer for smoothing
                 poseHistory.push(headOffset);
-                if (poseHistory.length > POSE_HISTORY_SIZE) {
+                if (poseHistory.length > MAX_POSE_HISTORY) {
                     poseHistory.shift();
                 }
 
-                // Calculate moving average for smooth head pose detection
-                let smoothedOffset = headOffset;
-                if (poseHistory.length > 0) {
-                    const sum = poseHistory.reduce((a, b) => a + b, 0);
-                    smoothedOffset = sum / poseHistory.length;
-                }
+                const smoothedOffset = poseHistory.reduce((a, b) => a + b, 0) / poseHistory.length;
 
-                // Determine if looking at screen based on threshold
                 isLookingAtScreen = smoothedOffset >= -HEAD_OFFSET_THRESHOLD &&
                     smoothedOffset <= HEAD_OFFSET_THRESHOLD;
-
-                // Debug logging
-                if (Math.random() < 0.02) {
-                    console.log(`Head offset: ${smoothedOffset.toFixed(4)}, Looking: ${isLookingAtScreen}`);
-                }
             } else {
                 isLookingAtScreen = false;
             }
@@ -946,12 +874,13 @@ function handleFaceMeshResults(results) {
     }
 }
 
+// ==================== TIMEOUT CHECKS ====================
+
 function checkFaceTimeout() {
     if (!faceDetected && isExamActive) {
         if (!noFaceStartTime) {
             noFaceStartTime = Date.now();
         } else {
-            // Extended timeout for accessibility mode (15s vs 5s)
             const timeoutLimit = isAccessibleMode ? 15000 : NO_FACE_TIMEOUT;
 
             if (Date.now() - noFaceStartTime > timeoutLimit) {
@@ -965,11 +894,9 @@ function checkFaceTimeout() {
 }
 
 function checkLookingAwayTimeout() {
-    // Disable looking away check for accessibility mode
     if (isAccessibleMode) return;
 
     if (isLookingAtScreen) {
-        // Reset timer if looking at screen
         lookingAwayStartTime = null;
         return;
     }
@@ -978,15 +905,21 @@ function checkLookingAwayTimeout() {
         if (!lookingAwayStartTime) {
             lookingAwayStartTime = Date.now();
         } else {
-            const awayTime = Date.now() - lookingAwayStartTime;
-
-            if (awayTime > REQUIRED_AWAY_TIME) {
-                if (!isLookingAtScreen) {
-                    addWarning('Looking away from screen for extended period');
-                    lookingAwayStartTime = Date.now();
-                }
+            if (Date.now() - lookingAwayStartTime > REQUIRED_AWAY_TIME) {
+                addWarning('Looking away from screen for extended period');
+                lookingAwayStartTime = Date.now();
             }
         }
+    }
+}
+
+// ==================== UI UPDATE FUNCTIONS ====================
+
+function updateStatusElement(elementId, text, color) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.textContent = text;
+        element.style.color = color;
     }
 }
 
@@ -1063,47 +996,21 @@ function createObjectStatusElement() {
     return document.getElementById("objectStatus");
 }
 
-function showTabSwitchWarning() {
-    const fullscreenWarning = document.getElementById("fullscreenWarning");
-    if (fullscreenWarning) {
-        fullscreenWarning.classList.add("show");
+// ==================== WARNING AND VIOLATION SYSTEM ====================
 
-        setTimeout(() => {
-            fullscreenWarning.classList.remove("show");
-        }, 3000);
-    }
-}
-
-/**
- * Map a human-readable warning reason to the canonical event_type used in the DB.
- */
 function reasonToEventType(reason) {
     const r = (reason || '').toLowerCase();
-    if (r.includes('no face') || r.includes('face not') || r.includes('face detected'))
-        return 'face_not_visible';
-    if (r.includes('multiple face'))
-        return 'multiple_faces';
-    if (r.includes('looking away') || r.includes('look away'))
-        return 'looking_away';
-    if (r.includes('phone') || r.includes('mobile') || r.includes('cell'))
-        return 'phone_detected';
-    if (r.includes('object') || r.includes('book') || r.includes('laptop'))
-        return 'phone_detected';   // map suspicious objects to phone_detected group
-    if (r.includes('tab') || r.includes('visibility') || r.includes('fullscreen'))
-        return 'tab_switch';
-    if (r.includes('voice') || r.includes('talking') || r.includes('speech'))
-        return 'voice_detected';
-    return 'tab_switch';           // safe fallback for key-block events etc.
+    if (r.includes('no face')) return 'face_not_visible';
+    if (r.includes('multiple face')) return 'multiple_faces';
+    if (r.includes('looking away')) return 'looking_away';
+    if (r.includes('phone') || r.includes('mobile') || r.includes('cell')) return 'phone_detected';
+    if (r.includes('object') || r.includes('book') || r.includes('laptop')) return 'phone_detected';
+    if (r.includes('tab') || r.includes('visibility') || r.includes('fullscreen')) return 'tab_switch';
+    return 'tab_switch';
 }
 
-/**
- * Fire-and-forget: persist one warning event to the backend DB.
- * Runs in background so it never blocks the UI.
- */
 function persistViolationToBackend(reason) {
     console.log('🔴 persistViolationToBackend called:', reason);
-    console.log('   currentAttempt:', currentAttempt);
-    console.log('   submission_id:', currentAttempt ? currentAttempt.submission_id : 'N/A');
 
     if (!currentAttempt || !currentAttempt.submission_id) {
         console.warn('🔴 persistViolationToBackend: NO submission_id, skipping!');
@@ -1118,7 +1025,6 @@ function persistViolationToBackend(reason) {
     };
 
     const url = `${API_BASE_URL}/monitoring/log-event/${currentAttempt.submission_id}`;
-    console.log('🔴 Posting to:', url, 'payload:', payload);
 
     fetch(url, {
         method: 'POST',
@@ -1127,16 +1033,8 @@ function persistViolationToBackend(reason) {
             'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(payload)
-    })
-        .then(res => {
-            console.log('🔴 persistViolationToBackend response:', res.status, res.statusText);
-            if (!res.ok) {
-                return res.text().then(t => console.error('🔴 Response body:', t));
-            }
-        })
-        .catch(err => console.error('🔴 persistViolationToBackend FETCH ERROR:', err));
+    }).catch(err => console.error('🔴 persistViolationToBackend FETCH ERROR:', err));
 }
-
 
 function addWarning(reason) {
     if (!isExamActive) return;
@@ -1150,8 +1048,6 @@ function addWarning(reason) {
     };
 
     warningHistory.push(warning);
-
-    // ── Persist to DB in background ──
     persistViolationToBackend(reason);
 
     updateWarningCount();
@@ -1170,7 +1066,6 @@ function addWarning(reason) {
 
     console.log(`⚠️ Warning #${warningCount}: ${reason}`);
 }
-
 
 function updateWarningCount() {
     const warningCountEl = document.getElementById("warningCount");
@@ -1229,6 +1124,335 @@ function showCheatingAlert(reason) {
                 closeCheatingAlert();
             }
         }, 8000);
+    }
+}
+
+// ==================== SPEECH RECOGNITION ====================
+
+function setupSpeechRecognition() {
+    if (!isAccessibleMode) return;
+
+    // Destroy existing instance first
+    destroySpeechRecognition();
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.warn("Speech recognition not supported");
+        if (isExamActive) {
+            speakText("Speech recognition not supported. Please use Chrome for accessibility features.");
+        }
+        return;
+    }
+
+    try {
+        speechRecognition = new SpeechRecognition();
+        speechRecognition.continuous = true;
+        speechRecognition.interimResults = true;
+        speechRecognition.lang = 'en-US';
+        speechRecognition.maxAlternatives = 1;
+
+        speechRecognition.onresult = (event) => {
+            try {
+                const result = event.results[event.results.length - 1];
+                if (!result.isFinal) return;
+
+                const transcript = result[0].transcript.toLowerCase().trim();
+                console.log("Voice command:", transcript);
+                handleVoiceCommand(transcript);
+            } catch (error) {
+                console.error("Error processing speech result:", error);
+            }
+        };
+
+        speechRecognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                console.warn("Microphone access denied");
+                isListening = false;
+            }
+        };
+
+        speechRecognition.onend = () => {
+            console.log("Speech recognition ended");
+            if (isExamActive && isAccessibleMode && isListening && !isSpeechRestarting && !isRestartingModels) {
+                isSpeechRestarting = true;
+                setTimeout(() => {
+                    try {
+                        if (isExamActive && isAccessibleMode && isListening && speechRecognition && !isRestartingModels) {
+                            speechRecognition.start();
+                            console.log("Speech recognition restarted");
+                        }
+                    } catch (e) {
+                        console.error("Failed to restart speech recognition:", e);
+                        isListening = false;
+                    } finally {
+                        isSpeechRestarting = false;
+                    }
+                }, SPEECH_RESTART_DELAY);
+            }
+        };
+
+        if (isExamActive) {
+            startListening();
+        }
+    } catch (error) {
+        console.error("Failed to setup speech recognition:", error);
+    }
+}
+
+function startListening() {
+    if (!isAccessibleMode || !speechRecognition || isListening || isRestartingModels) return;
+
+    try {
+        speechRecognition.start();
+        isListening = true;
+        console.log("🎤 Speech recognition started");
+    } catch (error) {
+        console.error("Failed to start speech recognition:", error);
+        isListening = false;
+    }
+}
+
+function stopListening() {
+    if (!speechRecognition || !isListening) return;
+
+    try {
+        speechRecognition.stop();
+        isListening = false;
+        console.log("🎤 Speech recognition stopped");
+    } catch (error) {
+        console.error("Failed to stop speech recognition:", error);
+        isListening = false;
+    }
+}
+
+function speakText(text) {
+    console.log("🔊 speakText called with:", text);
+
+    if (!isAccessibleMode || !window.speechSynthesis || isRestartingModels) {
+        console.log("⚠️ TTS not available");
+        return;
+    }
+
+    try {
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        utterance.lang = 'en-US';
+
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            const femaleVoice = voices.find(v => 
+                v.name.includes('Female') || 
+                v.name.includes('Samantha') || 
+                v.name.includes('Google UK English Female')
+            );
+            if (femaleVoice) {
+                utterance.voice = femaleVoice;
+            }
+        }
+
+        console.log("🔊 Speaking now:", text.substring(0, 50) + "...");
+        window.speechSynthesis.speak(utterance);
+        currentSpeech = utterance;
+    } catch (error) {
+        console.error("Text-to-speech error:", error);
+    }
+}
+
+function handleVoiceCommand(command) {
+    if (!isExamActive || isRestartingModels) return;
+
+    console.log("Processing voice command:", command);
+
+    if (command.includes('next') || command.includes('nest') || command.includes('forward')) {
+        if (currentQuestion < currentExam.questions.length - 1) {
+            window.nextQuestion();
+            speakText("Moving to next question.");
+        } else {
+            speakText("This is the last question.");
+        }
+        return;
+    }
+
+    if (command.includes('previous') || command.includes('back')) {
+        if (currentQuestion > 0) {
+            window.prevQuestion();
+            speakText("Moving to previous question.");
+        } else {
+            speakText("This is the first question.");
+        }
+        return;
+    }
+
+    if (command.includes('repeat') || command.includes('again')) {
+        console.log("🔄 Repeat command detected");
+        speakCurrentQuestion();
+        return;
+    }
+
+    if (command.includes('submit') || command.includes('finish exam')) {
+        console.log("📤 Submit command detected");
+        speakText("Are you sure you want to submit the exam? Say 'yes confirm' to submit or 'cancel' to continue.");
+
+        const originalHandler = speechRecognition.onresult;
+        let confirmationTimeout;
+
+        speechRecognition.onresult = (event) => {
+            const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+            console.log("Confirmation response:", transcript);
+
+            if (transcript.includes('yes') || transcript.includes('confirm')) {
+                speakText("Submitting your exam now.");
+                setTimeout(() => window.submitExam(), 1000);
+            } else {
+                speakText("Submission cancelled. Continuing with exam.");
+            }
+
+            speechRecognition.onresult = originalHandler;
+            clearTimeout(confirmationTimeout);
+        };
+
+        confirmationTimeout = setTimeout(() => {
+            speechRecognition.onresult = originalHandler;
+            speakText("No response received. Continuing with exam.");
+        }, 10000);
+
+        return;
+    }
+
+    const currentQ = currentExam.questions[currentQuestion];
+    console.log("🎯 Checking option selection. Question type:", currentQ?.type);
+
+    if (currentQ.type === "mcq") {
+        console.log("🎯 MCQ detected, checking command:", command);
+
+        if (command.includes('1') || command.includes('one') || command.includes('option 1')) {
+            console.log("🎯 Selecting option 1");
+            selectOption(0);
+            return;
+        }
+        if (command.includes('2') || command.includes('two') || command.includes('option 2')) {
+            console.log("🎯 Selecting option 2");
+            selectOption(1);
+            return;
+        }
+        if (command.includes('3') || command.includes('three') || command.includes('option 3')) {
+            console.log("🎯 Selecting option 3");
+            selectOption(2);
+            return;
+        }
+        if (command.includes('4') || command.includes('four') || command.includes('option 4')) {
+            console.log("🎯 Selecting option 4");
+            selectOption(3);
+            return;
+        }
+
+        console.log("⚠️ No matching option command found");
+    }
+}
+
+function selectOption(optionIndex) {
+    console.log("📝 selectOption called! Index:", optionIndex, "Current question:", currentQuestion);
+
+    const currentQ = currentExam.questions[currentQuestion];
+    if (currentQ.type === "mcq" && optionIndex < currentQ.options.length) {
+        console.log("📝 Saving answer...");
+        answers[currentQuestion] = optionIndex;
+
+        loadQuestion(currentQuestion, false);
+        updateQuestionGrid();
+
+        setTimeout(() => {
+            console.log("🔊 About to speak confirmation for option:", optionIndex + 1);
+            speakText(`Selected option ${optionIndex + 1}. ${currentQ.options[optionIndex]}`);
+            console.log("🔊 speakText called for confirmation");
+        }, 300);
+
+        if (currentQuestion < currentExam.questions.length - 1) {
+            setTimeout(() => {
+                window.nextQuestion();
+            }, 2500);
+        } else {
+            setTimeout(() => {
+                speakText("This was the last question. You can submit the exam when ready.");
+            }, 2500);
+        }
+    } else {
+        console.error("❌ selectOption failed!");
+    }
+}
+
+function speakCurrentQuestion() {
+    if (!isAccessibleMode || !currentExam || isRestartingModels) return;
+
+    try {
+        const question = currentExam.questions[currentQuestion];
+        let speechText = `Question ${currentQuestion + 1}. ${question.question_text}. `;
+
+        if (question.type === "mcq" && question.options) {
+            speechText += `Options: `;
+            question.options.forEach((option, index) => {
+                speechText += `Option ${index + 1}. ${option}. `;
+            });
+        } else if (question.type === "short") {
+            speechText += `This is a short answer question. Please speak your answer clearly.`;
+        }
+
+        speakText(speechText);
+    } catch (error) {
+        console.error("Error speaking question:", error);
+    }
+}
+
+function createAccessibilityLabel() {
+    accessibilityLabel = document.createElement("div");
+    accessibilityLabel.style.cssText = `
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: #4361ee;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        z-index: 9999;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    accessibilityLabel.innerHTML = `
+        <i class="fas fa-universal-access"></i>
+        <span>Accessibility Mode Enabled</span>
+    `;
+    document.body.appendChild(accessibilityLabel);
+}
+
+// ==================== EXAM BACKEND FUNCTIONS ====================
+
+async function checkAttemptStatus(examCode) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/exams/${examCode}/attempt-status`, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.attempted) {
+                alert("You have already attempted this exam. You cannot retake it.");
+                window.location.href = "student-dashboard.html";
+            }
+        }
+    } catch (error) {
+        console.error("Error checking attempt status:", error);
     }
 }
 
@@ -1296,6 +1520,8 @@ function updateExamInfoUI() {
     });
 }
 
+// ==================== EXAM START/STOP ====================
+
 window.startExam = async function () {
     if (!currentExam) {
         alert("Exam not loaded properly. Please refresh the page.");
@@ -1349,185 +1575,6 @@ window.startExam = async function () {
     }
 };
 
-function cleanupProctoring() {
-    isExamActive = false;
-    stopProctoring();
-
-    if (cameraStream) {
-        cameraStream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-        });
-        cameraStream = null;
-    }
-
-    const video = document.getElementById("videoElement");
-    if (video) {
-        video.srcObject = null;
-    }
-
-    if (microphone) {
-        microphone.disconnect();
-        microphone = null;
-    }
-
-    if (analyser) {
-        analyser.disconnect();
-        analyser = null;
-    }
-
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-
-    // Clean up accessibility features
-    stopListening();
-    if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-    }
-    if (accessibilityLabel && accessibilityLabel.parentNode) {
-        accessibilityLabel.parentNode.removeChild(accessibilityLabel);
-    }
-
-    faceMesh = null;
-    cocoModel = null;
-    poseHistory = [];
-    objectHistory = [];
-    isDetectingObject = false;
-    isRestartingSpeech = false;
-
-    removeSecurityBlockers();
-
-    document.exitFullscreen?.();
-
-    console.log("✅ Camera + Fullscreen cleaned up");
-}
-
-async function submitAnswers(autoSubmitReason = null) {
-    try {
-        if (!currentAttempt) {
-            alert("No active exam session found.");
-            return;
-        }
-
-        showLoading("Submitting exam...");
-
-        const formattedAnswers = Object.keys(answers).map(index => ({
-            question_index: parseInt(index),
-            answer: answers[index]
-        }));
-
-        const proctoringData = {
-            warnings: warningCount,
-            warning_history: warningHistory,
-            detected_objects: detectedObjects.map(d => d.class || 'Object'),
-            exam_duration: startExamTime ? Math.round((Date.now() - startExamTime) / 1000) : 0,
-            accessible_mode: isAccessibleMode
-        };
-
-        cleanupProctoring();
-
-        const response = await fetch(`${API_BASE_URL}/exams/submit/${currentAttempt.submission_id}`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                answers: formattedAnswers,
-                proctoring_data: proctoringData
-            })
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || "Failed to submit exam");
-        }
-
-        const result = await response.json();
-
-        if (examTimer) {
-            clearInterval(examTimer);
-        }
-
-        let message = `✅ Exam submitted successfully!\n\n`;
-        message += `Score: ${result.score}/${result.total_marks} (${result.percentage}%)\n`;
-        message += `Proctoring Warnings: ${warningCount}`;
-
-        if (autoSubmitReason) {
-            message += `\n\nReason: ${autoSubmitReason}`;
-        }
-
-        alert(message);
-
-        window.location.href = "student-dashboard.html";
-
-    } catch (error) {
-        console.error("❌ Error submitting exam:", error);
-        alert("Failed to submit exam: " + error.message);
-        hideLoading();
-    }
-}
-
-function showLoading(message) {
-    const loadingOverlay = document.getElementById("loadingOverlay");
-    const loadingMessage = document.getElementById("loadingMessage");
-
-    if (loadingMessage) loadingMessage.textContent = message || "Loading...";
-    if (loadingOverlay) loadingOverlay.style.display = "flex";
-}
-
-function hideLoading() {
-    const loadingOverlay = document.getElementById("loadingOverlay");
-    if (loadingOverlay) loadingOverlay.style.display = "none";
-}
-
-window.confirmSubmit = async function () {
-    closeSubmitConfirm();
-    await submitAnswers();
-};
-
-window.closeSubmitConfirm = function () {
-    const elements = ["submitConfirm", "submitOverlay"];
-    elements.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.classList.remove("show");
-    });
-};
-
-window.closeCheatingAlert = function () {
-    const elements = ["cheatingAlert", "cheatingOverlay"];
-    elements.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.classList.remove("show");
-    });
-};
-
-window.prevQuestion = function () {
-    if (currentQuestion > 0) {
-        loadQuestion(currentQuestion - 1);
-    }
-};
-
-window.nextQuestion = function () {
-    if (currentExam && currentQuestion < currentExam.questions.length - 1) {
-        loadQuestion(currentQuestion + 1);
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-    const buttons = {
-        "submitBtn": () => window.submitExam(),
-        "markBtn": () => toggleMarkQuestion()
-    };
-
-    Object.entries(buttons).forEach(([id, handler]) => {
-        const btn = document.getElementById(id);
-        if (btn) btn.onclick = handler;
-    });
-});
-
 function initializeExamUI() {
     const instructions = document.getElementById("examInstructions");
     const examContainer = document.getElementById("examContainer");
@@ -1540,13 +1587,21 @@ function initializeExamUI() {
 }
 
 function startTimer() {
+    if (examTimer) {
+        clearInterval(examTimer);
+        examTimer = null;
+    }
+    
     updateTimerDisplay();
     examTimer = setInterval(() => {
+        if (!isExamActive || isRestartingModels) return;
+        
         timeRemaining--;
         updateTimerDisplay();
 
         if (timeRemaining <= 0) {
             clearInterval(examTimer);
+            examTimer = null;
             autoSubmitExam("Time expired");
         }
     }, 1000);
@@ -1605,7 +1660,7 @@ function loadQuestion(index, shouldSpeak = true) {
 
             optionDiv.onclick = () => {
                 answers[index] = optionIndex;
-                loadQuestion(index);
+                loadQuestion(index, false);
                 updateQuestionGrid();
             };
 
@@ -1632,14 +1687,12 @@ function loadQuestion(index, shouldSpeak = true) {
     updateQuestionGrid();
     updateNavigationButtons();
 
-    // Speak the question if in accessible mode and shouldSpeak is true
-    if (isAccessibleMode && isExamActive && shouldSpeak) {
-        // Add delay for first question to let the start message finish
+    if (isAccessibleMode && isExamActive && shouldSpeak && !isRestartingModels) {
         const delay = (index === 0 && !hasSpokenFirstQuestion) ? 8000 : 500;
         if (index === 0) hasSpokenFirstQuestion = true;
 
         setTimeout(() => {
-            if (isAccessibleMode && isExamActive) {
+            if (isAccessibleMode && isExamActive && !isRestartingModels) {
                 speakCurrentQuestion();
             }
         }, delay);
@@ -1709,14 +1762,197 @@ window.submitExam = function () {
     }
 };
 
-window.addEventListener("pagehide", cleanupProctoring);
+window.confirmSubmit = async function () {
+    closeSubmitConfirm();
+    await submitAnswers();
+};
+
+window.closeSubmitConfirm = function () {
+    const elements = ["submitConfirm", "submitOverlay"];
+    elements.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove("show");
+    });
+};
+
+window.closeCheatingAlert = function () {
+    const elements = ["cheatingAlert", "cheatingOverlay"];
+    elements.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove("show");
+    });
+};
+
+window.prevQuestion = function () {
+    if (currentQuestion > 0 && !isRestartingModels) {
+        loadQuestion(currentQuestion - 1);
+    }
+};
+
+window.nextQuestion = function () {
+    if (currentExam && currentQuestion < currentExam.questions.length - 1 && !isRestartingModels) {
+        loadQuestion(currentQuestion + 1);
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const buttons = {
+        "submitBtn": () => window.submitExam(),
+        "markBtn": () => toggleMarkQuestion()
+    };
+
+    Object.entries(buttons).forEach(([id, handler]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.onclick = handler;
+    });
+});
+
+// ==================== SUBMISSION AND CLEANUP ====================
+
+async function submitAnswers(autoSubmitReason = null) {
+    try {
+        if (!currentAttempt) {
+            alert("No active exam session found.");
+            return;
+        }
+
+        showLoading("Submitting exam...");
+
+        const formattedAnswers = Object.keys(answers).map(index => ({
+            question_index: parseInt(index),
+            answer: answers[index]
+        }));
+
+        const proctoringData = {
+            warnings: warningCount,
+            warning_history: warningHistory,
+            detected_objects: detectedObjects.map(d => d.class || 'Object'),
+            exam_duration: startExamTime ? Math.round((Date.now() - startExamTime) / 1000) : 0,
+            accessible_mode: isAccessibleMode
+        };
+
+        // Full cleanup before submission
+        await cleanupExamSession();
+
+        const response = await fetch(`${API_BASE_URL}/exams/submit/${currentAttempt.submission_id}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                answers: formattedAnswers,
+                proctoring_data: proctoringData
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to submit exam");
+        }
+
+        const result = await response.json();
+
+        let message = `✅ Exam submitted successfully!\n\n`;
+        message += `Score: ${result.score}/${result.total_marks} (${result.percentage}%)\n`;
+        message += `Proctoring Warnings: ${warningCount}`;
+
+        if (autoSubmitReason) {
+            message += `\n\nReason: ${autoSubmitReason}`;
+        }
+
+        alert(message);
+        window.location.href = "student-dashboard.html";
+
+    } catch (error) {
+        console.error("❌ Error submitting exam:", error);
+        alert("Failed to submit exam: " + error.message);
+        hideLoading();
+    }
+}
+
+async function cleanupExamSession() {
+    console.log("🧹 Cleaning up exam session...");
+    
+    isExamActive = false;
+    
+    // Stop proctoring first
+    stopProctoring();
+    
+    // Clear timer
+    if (examTimer) {
+        clearInterval(examTimer);
+        examTimer = null;
+    }
+    
+    // Reset camera
+    await resetCamera();
+    
+    // Destroy AI models
+    await destroyAIModels();
+    
+    // Remove security blockers
+    removeSecurityBlockers();
+    
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+        try {
+            document.exitFullscreen();
+        } catch (e) {
+            console.warn("Failed to exit fullscreen:", e);
+        }
+    }
+    
+    // Reset state
+    warningCount = 0;
+    warningHistory = [];
+    faceDetected = false;
+    multipleFaces = false;
+    detectedObjects = [];
+    poseHistory = [];
+    objectHistory = [];
+    hasSpokenFirstQuestion = false;
+    isRestartingModels = false;
+    isObjectDetectionRunning = false;
+    isFaceProcessing = false;
+    
+    console.log("✅ Exam session cleaned up");
+}
+
+function showLoading(message) {
+    const loadingOverlay = document.getElementById("loadingOverlay");
+    const loadingMessage = document.getElementById("loadingMessage");
+
+    if (loadingMessage) loadingMessage.textContent = message || "Loading...";
+    if (loadingOverlay) loadingOverlay.style.display = "flex";
+}
+
+function hideLoading() {
+    const loadingOverlay = document.getElementById("loadingOverlay");
+    if (loadingOverlay) loadingOverlay.style.display = "none";
+}
+
+// ==================== EVENT LISTENERS ====================
+
+window.addEventListener("pagehide", () => {
+    if (isExamActive) {
+        cleanupExamSession();
+    }
+});
+
 window.addEventListener("beforeunload", function (e) {
     if (isExamActive) {
-        cleanupProctoring();
         const message = "Are you sure you want to leave? Your exam will be submitted automatically with violations recorded.";
         e.returnValue = message;
         return message;
     }
 });
 
-console.log("✅ PRODUCTION PROCTORING SYSTEM READY - STABLE BUILD");
+window.addEventListener("unload", () => {
+    // Emergency cleanup on unload
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+    }
+});
+
+console.log("✅ ULTRA STABLE PROCTORING SYSTEM WITH FIXED ARCHITECTURE");
