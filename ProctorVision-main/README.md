@@ -1,2 +1,0 @@
-# ProctorVision
-install dependencies
