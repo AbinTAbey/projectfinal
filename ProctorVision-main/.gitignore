@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.env
+
+# AI / ML
+yolov8n.pt
+*.pt
+*.onnx
+
+# Databases
+*.db
+
+# Cache
+.pytest_cache/
+
+# OS
+.DS_Store

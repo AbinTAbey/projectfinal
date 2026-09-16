@@ -1,0 +1,50 @@
+# =========================
+# Backend Core
+# =========================
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+email-validator==2.1.1
+
+# Database
+sqlalchemy==2.0.23
+
+# WebSockets
+websockets==12.0
+
+# =========================
+# AI / ML Core (LOCKED)
+# =========================
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
+pillow==10.1.0
+
+# =========================
+# MediaPipe (Face + Head Pose)
+# =========================
+mediapipe==0.10.31
+
+# =========================
+# YOLOv8 (Phone Detection)
+# =========================
+ultralytics==8.1.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# =========================
+# Audio Analysis
+# =========================
+webrtcvad==2.0.10
+
+# =========================
+# Analytics / Thresholding
+# =========================
+scipy==1.11.4
+scikit-learn==1.3.2
+pandas==2.1.4
